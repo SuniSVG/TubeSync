@@ -4,6 +4,7 @@ import time
 import requests
 import shutil
 import logging
+import re
 from datetime import datetime, timezone
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -219,6 +220,19 @@ def get_youtube_client(channel: dict) -> tuple:
     youtube = build("youtube", "v3", credentials=creds, static_discovery=False)
     return youtube, creds
 
+def update_channel_stats(youtube, channel_id):
+    """Lấy và cập nhật số sub và avatar mới nhất."""
+    try:
+        res = youtube.channels().list(part="snippet,statistics", mine=True).execute()
+        if res["items"]:
+            snippet = res["items"][0]["snippet"]
+            stats = res["items"][0]["statistics"]
+            supabase.table("youtube_channels").update({
+                "subscriber_count": int(stats.get("subscriberCount", 0)),
+                "thumbnail_url": snippet["thumbnails"]["default"]["url"]
+            }).eq("id", channel_id).execute()
+    except Exception as e:
+        log.warning(f"Không thể cập nhật stats kênh: {e}")
 
 def upload_to_youtube(youtube, video: dict, video_path: str) -> str:
     """
@@ -234,7 +248,11 @@ def upload_to_youtube(youtube, video: dict, video_path: str) -> str:
 
     tags = video.get("tags") or []
     if isinstance(tags, str):
-        tags = [t.strip() for t in tags.split(",") if t.strip()]
+        # Tách bằng cả dấu phẩy và khoảng trắng cho linh hoạt
+        tags = [t.strip() for t in re.split(r'[,\s]+', tags) if t.strip()]
+    
+    # Chuẩn hóa: Đảm bảo mọi tag đều bắt đầu bằng dấu #
+    tags = [(t if t.startswith('#') else f'#{t}') for t in tags]
 
     body = {
         "snippet": {
@@ -353,12 +371,16 @@ def process_pending_videos():
             # 3. Upload YouTube
             yt_video_id = upload_to_youtube(youtube, video, video_path)
 
+            # 4. Cập nhật thống kê kênh sau khi upload
+            update_channel_stats(youtube, channel["id"])
+
             # 4. Cập nhật DB — thành công
-            supabase.table("videos").update({
+            data_to_update = {
                 "status": "uploaded",
                 "youtube_video_id": yt_video_id,
                 "error_message": None,
-            }).eq("id", video_id).execute()
+            }
+            supabase.table("videos").update(data_to_update).eq("id", video_id).execute()
 
             # 5. Di chuyển file vào thư mục success nếu là file cục bộ
             if is_local_file:

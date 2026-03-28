@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Youtube, LayoutDashboard, Upload, CalendarClock, Settings, LogOut } from 'lucide-react';
+import { Youtube, LayoutDashboard, Upload, CalendarClock, Settings, LogOut, CreditCard } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -17,6 +17,7 @@ import { useEffect, useState } from 'react';
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -25,6 +26,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         router.push('/login');
       } else {
         setIsLoading(false);
+        // Lấy avatar từ kênh đầu tiên
+        const { data: channel } = await supabase
+          .from('youtube_channels')
+          .select('thumbnail_url')
+          .limit(1)
+          .single();
+        if (channel?.thumbnail_url) setAvatarUrl(channel.thumbnail_url);
       }
     };
     
@@ -71,6 +79,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <CalendarClock className="h-5 w-5 mr-3 text-slate-400" />
             Schedule
           </Link>
+          <Link href="/dashboard/billing" className="flex items-center px-4 py-3 text-slate-600 hover:text-slate-900 hover:bg-slate-50 rounded-lg font-medium transition-colors">
+            <CreditCard className="h-5 w-5 mr-3 text-slate-400" />
+            Billing & Subscriptions
+          </Link>
           <Link href="/dashboard/settings" className="flex items-center px-4 py-3 text-slate-600 hover:text-slate-900 hover:bg-slate-50 rounded-lg font-medium transition-colors">
             <Settings className="h-5 w-5 mr-3 text-slate-400" />
             Settings
@@ -92,7 +104,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button className="h-8 w-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 font-bold hover:bg-slate-300 transition-colors focus:outline-none focus:ring-2 focus:ring-red-500">
-                  U
+                  {avatarUrl ? (
+                    <img src={avatarUrl} alt="Avatar" className="h-8 w-8 rounded-full object-cover" />
+                  ) : (
+                    'U'
+                  )}
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-48">

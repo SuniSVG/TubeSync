@@ -277,7 +277,7 @@ export default function SchedulePage() {
                       <TableCell>
                         <div className="font-medium text-slate-900">{video.title}</div>
                         <div className="text-xs text-slate-500 font-mono mt-1 flex items-center">
-                          Drive ID: {video.drive_file_id.substring(0, 10)}...
+                          {video.drive_file_id ? `Drive ID: ${video.drive_file_id.substring(0, 10)}...` : `Local Path: ...${video.file_path?.split(/[\\/]/).pop()}`}
                         </div>
                       </TableCell>
                       <TableCell>

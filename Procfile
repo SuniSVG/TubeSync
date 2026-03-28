@@ -1,4 +1,4 @@
 web: npm start
 api: node backend/server.js
-uploader: python python-worker/youtube_uploader.py
-scanner: python python-worker/scheduler_cron.py
+uploader: python3 python-worker/youtube_uploader.py
+scanner: python3 python-worker/scheduler_cron.py

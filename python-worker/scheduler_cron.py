@@ -40,7 +40,13 @@ def schedule_random_videos():
         log.warning("⚠️ Kho không còn video để đăng!")
         return
 
-    # 2. Lấy danh sách tất cả các kênh YouTube hiện có
+    # 2. Lấy danh sách kênh và khung giờ từ profile
+    # Ở đây giả sử bạn có 1 user chính, nếu đa user cần loop qua từng profile
+    profile_res = supabase.table("profiles").select("id, preferred_post_times").limit(1).execute()
+    if not profile_res.data:
+        log.error("❌ Không tìm thấy thông tin profile người dùng.")
+        return
+    
     channel_res = supabase.table("youtube_channels").select("id").limit(1).execute()
     channels = channel_res.data
     
@@ -64,12 +70,20 @@ def schedule_random_videos():
         
         log.info(f"🚀 Đã kích hoạt video '{video['title']}' cho kênh {target_channel['id']}")
 
+def get_user_schedule():
+    res = supabase.table("profiles").select("preferred_post_times").limit(1).execute()
+    if res.data and res.data[0]['preferred_post_times']:
+        return res.data[0]['preferred_post_times']
+    return ["08:00", "12:00", "18:00", "22:00"] # Fallback
+
 if __name__ == "__main__":
-    log.info("Scheduler started. Watching for 00:00, 06:00, 12:00, 18:00, 21:00...")
+    log.info("🚀 Scheduler started. Loading dynamic schedule from Database...")
     while True:
         now = datetime.now().strftime("%H:%M")
+        dynamic_times = get_user_schedule()
+        
         # Kiểm tra khung giờ (chỉ chạy 1 lần vào phút đầu tiên của giờ đó)
-        if now in ["00:00", "06:00", "12:00", "18:00", "21:00"]:
+        if now in dynamic_times:
             try:
                 schedule_random_videos()
             except Exception as e:

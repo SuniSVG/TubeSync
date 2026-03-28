@@ -18,7 +18,11 @@ const app = express();
    ============================================================ */
 
 app.use(cors({
-  origin: [process.env.FRONTEND_URL || "http://localhost:3000"],
+  origin: [
+    process.env.FRONTEND_URL || "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:3001"
+  ],
   credentials: true,
 }));
 app.use(express.json());
@@ -299,6 +303,8 @@ app.post("/upload", upload.single("file"), async (req, res) => {
     // Bắt lỗi thiếu scope và hướng dẫn người dùng
     if (errorMsg.includes("insufficient authentication scopes")) {
       errorMsg = "Ứng dụng thiếu quyền truy cập Drive. Vui lòng vào Settings -> Kết nối lại kênh YouTube.";
+    } else if (errorMsg.includes("storage quota")) {
+      errorMsg = "Bộ nhớ Google Drive của bạn đã đầy. Vui lòng dọn dẹp Drive hoặc nâng cấp dung lượng để tiếp tục.";
     }
 
     console.error("[Upload] ERROR:", errorMsg);
@@ -331,6 +337,12 @@ const PORT = process.env.PORT || 3001;
 
 // Railway handles SSL/HTTPS automatically. 
 // We bind to 0.0.0.0 to ensure the service is reachable within the container network.
-http.createServer(app).listen(PORT, "0.0.0.0", () => {
+const server = http.createServer(app);
+
+// Tăng timeout lên 10 phút để xử lý video dung lượng lớn
+server.timeout = 600000;
+server.keepAliveTimeout = 610000;
+
+server.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Backend chạy tại http://0.0.0.0:${PORT}`);
 });

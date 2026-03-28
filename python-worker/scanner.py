@@ -131,7 +131,7 @@ def scan_and_register():
             "scheduled_for": next_run.isoformat(),
             "channel_id": channel_id,
             "description": f"Video {title} được tải lên tự động."[:1000],
-            "tags": ["shorts", "auto-upload"]
+            "tags": ["#shorts", "#auto-upload"]
         })
         # Tránh trùng lặp ngay trong cùng đợt quét
         existing_hashes.add(file_hash)

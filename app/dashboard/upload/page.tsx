@@ -29,6 +29,9 @@ export default function UploadPage() {
   const [titleTemplate, setTitleTemplate] = useState('{filename}');
   const [description, setDescription] = useState('');
   const [tags, setTags] = useState('');
+  const [suggestedTags, setSuggestedTags] = useState<string[]>([]);
+  const [showTagSuggestions, setShowTagSuggestions] = useState(false);
+
   const [scheduleType, setScheduleType] = useState('single');
   const [scheduleDate, setScheduleDate] = useState('');
   const [scheduleTime, setScheduleTime] = useState('');
@@ -70,6 +73,15 @@ export default function UploadPage() {
     fetchChannel();
   }, []);
 
+  // Fetch trending tags
+  useEffect(() => {
+    const fetchTags = async () => {
+      const { data } = await supabase.from('tags_library').select('tag_name').order('usage_count', { ascending: false }).limit(10);
+      if (data) setSuggestedTags(data.map(t => t.tag_name));
+    };
+    fetchTags();
+  }, []);
+
   const handleUpload = async () => {
     if (files.length === 0) return;
     
@@ -79,6 +91,16 @@ export default function UploadPage() {
     setUploadError(null);
 
     try {
+      if (!channel?.id) {
+        toast({
+          variant: "destructive",
+          title: "Chưa kết nối kênh",
+          description: "Vui lòng kết nối YouTube trước khi upload.",
+        });
+        setIsUploading(false);
+        return;
+      }
+
       // 1. Check Auth
       const { data: { session }, error: authError } = await supabase.auth.getSession();
       if (authError || !session) {
@@ -101,7 +123,7 @@ export default function UploadPage() {
         formData.append('userId', session.user.id);
 
         // 2. Tải lên Backend Node.js (Sử dụng Google Drive API)
-        const backendUrl = 'https://127.0.0.1:3001/upload';
+        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001/upload';
 
         let uploadResult: any;
 
@@ -110,35 +132,34 @@ export default function UploadPage() {
             method: 'POST',
             mode: 'cors',
             body: formData,
-            keepalive: true,
             headers: {
               Authorization: `Bearer ${session.access_token}`
             }
           });
 
+          const result = await response.json().catch(() => null);
           if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`Server returned ${response.status}: ${errorText.slice(0, 100)}`);
+            throw new Error(result?.error || `Lỗi server (${response.status})`);
           }
-
-          uploadResult = await response.json();
-          if (!uploadResult?.success) {
-            throw new Error(uploadResult?.error || 'Backend từ chối tải lên Google Drive.');
-          }
+          uploadResult = result;
         } catch (fetchError: any) {
+          console.error("Fetch details:", fetchError);
           throw new Error(`Lỗi tải lên: ${fetchError.message}`);
         }
 
         // 3. Save Metadata to Supabase
-        if (!channel?.id) throw new Error("Chưa kết nối kênh YouTube.");
-        
         // Loại bỏ phần mở rộng (extension), áp dụng template và giới hạn 100 ký tự
         let finalTitle = titleTemplate.replace('{filename}', file.name.replace(/\.[^/.]+$/, ""));
         if (finalTitle.length > 100) {
           finalTitle = finalTitle.substring(0, 100);
         }
 
-        const tagArray = tags.split(',').map(t => t.trim()).filter(t => t);
+        // Tách bằng dấu phẩy hoặc khoảng trắng, đảm bảo có dấu #
+        const tagArray = tags
+          .split(/[\s,]+/)
+          .map(t => t.trim())
+          .filter(t => t !== "")
+          .map(t => t.startsWith('#') ? t : `#${t}`);
         
         const now = new Date().toISOString();
         let videoData: any = {
@@ -381,14 +402,39 @@ export default function UploadPage() {
                 rows={4} 
               />
             </div>
-            <div className="space-y-2">
+            <div className="space-y-2 relative">
               <Label htmlFor="tags">Tags (comma separated)</Label>
               <Input 
                 id="tags" 
                 value={tags}
-                onChange={(e) => setTags(e.target.value)}
-                placeholder="vlog, tech, review" 
+                onChange={(e) => {
+                  setTags(e.target.value);
+                  setShowTagSuggestions(true);
+                }}
+                onFocus={() => setShowTagSuggestions(true)}
+                placeholder="#vlog #tech #review hoặc vlog, tech..." 
               />
+              {showTagSuggestions && suggestedTags.length > 0 && (
+                <div className="absolute z-50 w-full bg-white border rounded-md shadow-lg mt-1 p-2 flex flex-wrap gap-2">
+                  <p className="text-[10px] text-slate-400 w-full mb-1 uppercase font-bold">Gợi ý tag phổ biến:</p>
+                  {suggestedTags.filter(t => !tags.includes(t)).map(tag => (
+                    <button 
+                      key={tag} 
+                      onClick={() => {
+                        const currentTags = tags.split(/[\s,]+/).map(t => t.trim()).filter(t => t);
+                        const normalizedTag = tag.startsWith('#') ? tag : `#${tag}`;
+                        if (!currentTags.includes(normalizedTag)) {
+                          setTags([...currentTags, normalizedTag].join(' ') + ' ');
+                        }
+                      }}
+                      className="text-xs bg-slate-100 hover:bg-indigo-100 hover:text-indigo-600 px-2 py-1 rounded-full transition-colors"
+                    >
+                      #{tag}
+                    </button>
+                  ))}
+                  <button onClick={() => setShowTagSuggestions(false)} className="text-[10px] text-indigo-500 w-full text-right mt-1 hover:underline">Đóng</button>
+                </div>
+              )}
             </div>
             <div className="space-y-4 border-t pt-4 mt-4">
               <h3 className="font-medium text-slate-900">Scheduling Options</h3>
@@ -402,8 +448,8 @@ export default function UploadPage() {
                   <SelectContent>
                     <SelectItem value="single">Single Post</SelectItem>
                     <SelectItem value="recurring">Recurring Post</SelectItem>
-                    <SelectItem value="continuous">Continuous Posting</SelectItem>
-                    <SelectItem value="random">Randomized Posting</SelectItem>
+                    <SelectItem value="continuous">Continuous (Theo mốc giờ Settings)</SelectItem>
+                    <SelectItem value="random">Random (Theo mốc giờ Settings)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

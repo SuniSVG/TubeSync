@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { Youtube, CheckCircle2, Shield, CreditCard } from 'lucide-react';
+import { Youtube, CheckCircle2, Shield, CreditCard, Clock, Save } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
 interface ChannelStats {
@@ -23,12 +23,20 @@ export default function SettingsPage() {
   const [channelName, setChannelName] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [stats, setStats] = useState<ChannelStats | null>(null);
+  
+  // Schedule state
+  const [postTimes, setPostTimes] = useState<string[]>(['08:00', '12:00', '18:00', '22:00']);
+  const [isSavingSchedule, setIsSavingSchedule] = useState(false);
 
   useEffect(() => {
     const checkAuth = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {
         setUserEmail(session.user.email || null);
+        
+        // Fetch profile to get post times
+        const { data: profile } = await supabase.from('profiles').select('preferred_post_times').eq('id', session.user.id).single();
+        if (profile?.preferred_post_times) setPostTimes(profile.preferred_post_times);
         
         // Check if user has a connected channel
         const { data: channelData, error } = await supabase
@@ -188,6 +196,29 @@ export default function SettingsPage() {
     }
   };
 
+  const handleSaveSchedule = async () => {
+    setIsSavingSchedule(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
+      // Lọc bỏ các ô trống và đảm bảo tối đa 4
+      const finalTimes = postTimes.filter(t => t !== '').slice(0, 4);
+      
+      const { error } = await supabase
+        .from('profiles')
+        .update({ preferred_post_times: finalTimes })
+        .eq('id', session.user.id);
+
+      if (error) throw error;
+      alert('Đã cập nhật khung giờ đăng thành công!');
+    } catch (err: any) {
+      alert('Lỗi: ' + err.message);
+    } finally {
+      setIsSavingSchedule(false);
+    }
+  };
+
   return (
     <div className="max-w-4xl mx-auto space-y-8">
       <div>
@@ -198,7 +229,7 @@ export default function SettingsPage() {
       <Tabs defaultValue="channels" className="w-full">
         <TabsList className="grid w-full grid-cols-2 mb-8">
           <TabsTrigger value="channels">Connected Channels</TabsTrigger>
-          <TabsTrigger value="api">API & Integrations</TabsTrigger>
+          <TabsTrigger value="api">Lịch đăng & Tags</TabsTrigger>
         </TabsList>
 
         <TabsContent value="channels" className="space-y-6">
