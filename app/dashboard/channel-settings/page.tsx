@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/lib/supabase';
-import { fetchChannelStats, updateChannelStats } from '@/lib/youtube';
+import { updateChannelStats } from '@/lib/youtube';
 
 export default function ChannelSettingsPage() {
   const [channels, setChannels] = useState<any[]>([]);

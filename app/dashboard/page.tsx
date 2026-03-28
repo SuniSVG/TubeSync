@@ -11,9 +11,7 @@ import {
   Eye, 
   Video, 
   TrendingUp, 
-  CheckCircle2, 
   Clock, 
-  AlertCircle,
   ArrowUpRight,
   Plus
 } from 'lucide-react';
