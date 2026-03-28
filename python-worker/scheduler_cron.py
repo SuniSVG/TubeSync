@@ -7,7 +7,10 @@ from datetime import datetime, timezone
 from dotenv import load_dotenv
 from supabase import create_client, Client
 
-load_dotenv()
+# Cấu hình đường dẫn .env chính xác
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.dirname(BASE_DIR)
+load_dotenv(os.path.join(ROOT_DIR, ".env"))
 
 # Fix Vietnamese encoding for Windows console/PM2
 if sys.platform == "win32":

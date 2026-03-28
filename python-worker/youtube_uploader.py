@@ -39,7 +39,9 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-load_dotenv()
+# Load .env từ thư mục gốc (cha của thư mục hiện tại)
+ROOT_DIR = os.path.dirname(BASE_DIR)
+load_dotenv(os.path.join(ROOT_DIR, ".env"))
 
 # ==========================================
 # CONFIGURATION
