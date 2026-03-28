@@ -1,9 +1,11 @@
 [phases.setup]
-nixPkgs = ["nodejs_20", "python311", "gcc"]
+nixPkgs = ["nodejs", "python311", "gcc"]
+
+[phases.install]
+cmds = [
+  "npm install",
+  "pip install -r requirements.txt"
+]
 
 [phases.build]
-cmds = [
-    "npm install",
-    "npm run build",
-    "pip install -r requirements.txt"
-]
+cmds = ["npm run build"]
