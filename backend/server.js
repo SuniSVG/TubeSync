@@ -1,7 +1,7 @@
 require("dotenv").config();
 console.log("🔥 SERVER ĐANG CHẠY");
 
-const https   = require("https");
+const http    = require("http");
 const express = require("express");
 const multer  = require("multer");
 const { google } = require("googleapis");
@@ -329,20 +329,8 @@ app.get("/health", (_, res) => res.json({ ok: true, ts: new Date().toISOString()
 
 const PORT = process.env.PORT || 3001;
 
-// Chạy HTTPS để tương thích với frontend https://localhost:3000
-// cert.pem và key.pem phải nằm cùng thư mục với server.js
-let sslOptions;
-try {
-  sslOptions = {
-    key:  fs.readFileSync(path.join(__dirname, "key.pem")),
-    cert: fs.readFileSync(path.join(__dirname, "cert.pem")),
-  };
-} catch (err) {
-  console.error("❌ ERROR: Missing SSL certificates (key.pem/cert.pem) in backend folder.");
-  console.error("Please generate them using mkcert or openssl.");
-  process.exit(1);
-}
-
-https.createServer(sslOptions, app).listen(PORT, () => {
-  console.log(`🚀 Backend chạy tại https://localhost:${PORT}`);
+// Railway handles SSL/HTTPS automatically. 
+// We bind to 0.0.0.0 to ensure the service is reachable within the container network.
+http.createServer(app).listen(PORT, "0.0.0.0", () => {
+  console.log(`🚀 Backend chạy tại http://0.0.0.0:${PORT}`);
 });
