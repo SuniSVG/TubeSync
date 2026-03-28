@@ -3,22 +3,21 @@ FROM node:20
 WORKDIR /app
 COPY . .
 
-# Cài Python + venv
+# Cài Python
 RUN apt-get update && \
     apt-get install -y python3 python3-venv python3-pip && \
     rm -rf /var/lib/apt/lists/*
 
-# Tạo virtual environment
+# Tạo venv
 RUN python3 -m venv /venv
-
-# Dùng venv
 ENV PATH="/venv/bin:$PATH"
 
-# Cài node deps
+# Cài dependencies
 RUN npm install
-
-# Cài python deps
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Chạy app
+# 🔥 BUILD NEXT (QUAN TRỌNG)
+RUN npm run build
+
+# Run app
 CMD ["npm", "start"]
