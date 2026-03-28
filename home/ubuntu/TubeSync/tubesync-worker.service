@@ -1,0 +1,15 @@
+[Unit]
+Description=TubeSync Pro YouTube Uploader Worker
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/TubeSync/python-worker
+# Đường dẫn tới python trong môi trường ảo (venv) là tốt nhất
+ExecStart=/home/ubuntu/TubeSync/python-worker/venv/bin/python youtube_uploader.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
