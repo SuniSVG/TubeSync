@@ -1,17 +1,59 @@
- 'use client';
+'use client';
 
 import { useState, useCallback, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { UploadCloud, FileVideo, X, CheckCircle2, Loader2, AlertCircle } from 'lucide-react';
+import {
+  UploadCloud, FileVideo, X, CheckCircle2, Loader2, AlertCircle,
+  Clock, Repeat2, Shuffle, Zap, ChevronRight, Tag, FileText,
+  CalendarDays, Hash, Info, Sparkles, PlayCircle
+} from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useToast } from "@/hooks/use-toast";
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+type ScheduleType = 'single' | 'recurring' | 'continuous' | 'random';
+
+const SCHEDULE_OPTIONS: { value: ScheduleType; label: string; icon: any; desc: string }[] = [
+  { value: 'single',     label: 'Đơn lần',    icon: CalendarDays, desc: 'Đăng 1 lần vào thời điểm cụ thể' },
+  { value: 'recurring',  label: 'Lặp lại',    icon: Repeat2,      desc: 'Đăng theo chu kỳ ngày/tuần/tháng' },
+  { value: 'continuous', label: 'Liên tục',   icon: Clock,        desc: 'Đăng mỗi X giờ tự động' },
+  { value: 'random',     label: 'Ngẫu nhiên', icon: Shuffle,      desc: 'Đăng ngẫu nhiên trong khoảng thời gian' },
+];
+
+// ─── File size formatter ──────────────────────────────────────────────────────
+const fmtSize = (bytes: number) => {
+  if (bytes >= 1073741824) return `${(bytes / 1073741824).toFixed(2)} GB`;
+  return `${(bytes / 1048576).toFixed(2)} MB`;
+};
+
+// ─── Step Indicator ───────────────────────────────────────────────────────────
+function StepIndicator({ current }: { current: number }) {
+  const steps = ['Chọn file', 'Metadata', 'Lịch đăng', 'Xác nhận'];
+  return (
+    <div className="flex items-center gap-0">
+      {steps.map((s, i) => (
+        <div key={s} className="flex items-center">
+          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${i < current ? 'bg-slate-900 text-white' : i === current ? 'bg-slate-100 text-slate-700 ring-1 ring-slate-300' : 'text-slate-400'}`}>
+            <span className={`w-4 h-4 flex items-center justify-center rounded-full text-[10px] ${i < current ? 'bg-white text-slate-900' : i === current ? 'bg-slate-300 text-slate-700' : 'bg-slate-100 text-slate-400'}`}>
+              {i < current ? '✓' : i + 1}
+            </span>
+            <span className="hidden sm:inline">{s}</span>
+          </div>
+          {i < steps.length - 1 && (
+            <div className={`h-px w-6 mx-1 ${i < current ? 'bg-slate-400' : 'bg-slate-200'}`} />
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Main Component ───────────────────────────────────────────────────────────
 export default function UploadPage() {
   const { toast } = useToast();
   const [files, setFiles] = useState<File[]>([]);
@@ -20,6 +62,7 @@ export default function UploadPage() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadSuccess, setUploadSuccess] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [currentFile, setCurrentFile] = useState('');
 
   // Publish options
   const [showPublishOptions, setShowPublishOptions] = useState(false);
@@ -32,7 +75,7 @@ export default function UploadPage() {
   const [suggestedTags, setSuggestedTags] = useState<string[]>([]);
   const [showTagSuggestions, setShowTagSuggestions] = useState(false);
 
-  const [scheduleType, setScheduleType] = useState('single');
+  const [scheduleType, setScheduleType] = useState<ScheduleType>('single');
   const [scheduleDate, setScheduleDate] = useState('');
   const [scheduleTime, setScheduleTime] = useState('');
   const [recurringInterval, setRecurringInterval] = useState('daily');
@@ -40,15 +83,18 @@ export default function UploadPage() {
   const [randomStartDate, setRandomStartDate] = useState('');
   const [randomEndDate, setRandomEndDate] = useState('');
 
+  // Derived step
+  const step = files.length === 0 ? 0 : !showPublishOptions ? 1 : publishImmediately ? 3 : 2;
+
   const onDrop = useCallback((acceptedFiles: File[]) => {
     setFiles(prev => [...prev, ...acceptedFiles]);
+    setUploadSuccess(false);
+    setUploadError(null);
   }, []);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    accept: {
-      'video/*': ['.mp4', '.mov', '.avi', '.mkv']
-    }
+    accept: { 'video/*': ['.mp4', '.mov', '.avi', '.mkv'] },
   });
 
   const removeFile = (index: number) => {
@@ -64,27 +110,27 @@ export default function UploadPage() {
           .select('id')
           .eq('user_id', session.user.id)
           .limit(1);
-        
-        if (data && data.length > 0) {
-          setChannel(data[0]);
-        }
+        if (data && data.length > 0) setChannel(data[0]);
       }
     };
     fetchChannel();
   }, []);
 
-  // Fetch trending tags
   useEffect(() => {
     const fetchTags = async () => {
-      const { data } = await supabase.from('tags_library').select('tag_name').order('usage_count', { ascending: false }).limit(10);
-      if (data) setSuggestedTags(data.map(t => t.tag_name));
+      const { data } = await supabase
+        .from('tags_library')
+        .select('tag_name')
+        .order('usage_count', { ascending: false })
+        .limit(10);
+      if (data) setSuggestedTags(data.map((t: any) => t.tag_name));
     };
     fetchTags();
   }, []);
 
   const handleUpload = async () => {
     if (files.length === 0) return;
-    
+
     setIsUploading(true);
     setUploadProgress(0);
     setUploadSuccess(false);
@@ -93,22 +139,24 @@ export default function UploadPage() {
     try {
       if (!channel?.id) {
         toast({
-          variant: "destructive",
-          title: "Chưa kết nối kênh",
-          description: "Vui lòng kết nối YouTube trước khi upload.",
+          variant: 'destructive',
+          title: 'Chưa kết nối kênh',
+          description: 'Vui lòng kết nối YouTube trước khi upload.',
         });
         setIsUploading(false);
         return;
       }
 
-      // 1. Check Auth
-      const { data: { session }, error: authError } = await supabase.auth.getSession();
+      const { data: { session }, error: authError } = await supabase.auth.getUser().then(() => supabase.auth.getSession());
+
+      if (authError && authError.message.includes('Refresh Token Not Found')) {
+        toast({ variant: 'destructive', title: 'Phiên đăng nhập hết hạn', description: 'Vui lòng đăng nhập lại.' });
+        await supabase.auth.signOut();
+        return;
+      }
+
       if (authError || !session) {
-        toast({
-          variant: "destructive",
-          title: "Yêu cầu đăng nhập",
-          description: "Bạn cần đăng nhập để thực hiện tải lên.",
-        });
+        toast({ variant: 'destructive', title: 'Yêu cầu đăng nhập', description: 'Bạn cần đăng nhập để thực hiện tải lên.' });
         setIsUploading(false);
         return;
       }
@@ -117,14 +165,12 @@ export default function UploadPage() {
       let completedFiles = 0;
 
       for (const file of files) {
-        // Sử dụng FormData để gửi stream file
+        setCurrentFile(file.name);
         const formData = new FormData();
         formData.append('file', file);
         formData.append('userId', session.user.id);
 
-        // 2. Tải lên Backend Node.js (Sử dụng Google Drive API)
-        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001/upload';
-
+        const backendUrl = process.env.BACKEND_URL || 'http://localhost:3001/upload';
         let uploadResult: any;
 
         try {
@@ -132,41 +178,30 @@ export default function UploadPage() {
             method: 'POST',
             mode: 'cors',
             body: formData,
-            headers: {
-              Authorization: `Bearer ${session.access_token}`
-            }
+            headers: { Authorization: `Bearer ${session.access_token}` },
           });
-
           const result = await response.json().catch(() => null);
-          if (!response.ok) {
-            throw new Error(result?.error || `Lỗi server (${response.status})`);
-          }
+          if (!response.ok) throw new Error(result?.error || `Lỗi server (${response.status})`);
           uploadResult = result;
         } catch (fetchError: any) {
-          console.error("Fetch details:", fetchError);
           throw new Error(`Lỗi tải lên: ${fetchError.message}`);
         }
 
-        // 3. Save Metadata to Supabase
-        // Loại bỏ phần mở rộng (extension), áp dụng template và giới hạn 100 ký tự
-        let finalTitle = titleTemplate.replace('{filename}', file.name.replace(/\.[^/.]+$/, ""));
-        if (finalTitle.length > 100) {
-          finalTitle = finalTitle.substring(0, 100);
-        }
+        let finalTitle = titleTemplate.replace('{filename}', file.name.replace(/\.[^/.]+$/, ''));
+        if (finalTitle.length > 100) finalTitle = finalTitle.substring(0, 100);
 
-        // Tách bằng dấu phẩy hoặc khoảng trắng, đảm bảo có dấu #
         const tagArray = tags
           .split(/[\s,]+/)
           .map(t => t.trim())
-          .filter(t => t !== "")
-          .map(t => t.startsWith('#') ? t : `#${t}`);
-        
+          .filter(t => t !== '')
+          .map(t => (t.startsWith('#') ? t : `#${t}`));
+
         const now = new Date().toISOString();
         let videoData: any = {
           user_id: session.user.id,
-          channel_id: channel.id, // THÊM DÒNG NÀY
+          channel_id: channel.id,
           title: finalTitle,
-          description: description,
+          description,
           tags: tagArray,
           drive_file_id: uploadResult.fileId,
           app_uploaded: true,
@@ -174,13 +209,11 @@ export default function UploadPage() {
         };
 
         if (publishImmediately) {
-          // Immediate publish mode
-          videoData.status = 'pending'; // Python worker will pick up immediately since scheduled_for = now
+          videoData.status = 'pending';
           videoData.scheduled_for = now;
           videoData.publish_now = true;
           videoData.schedule_type = 'immediate';
         } else {
-          // Normal schedule mode
           let scheduledFor = new Date().toISOString();
           if (scheduleDate && scheduleTime) {
             scheduledFor = new Date(`${scheduleDate}T${scheduleTime}`).toISOString();
@@ -197,10 +230,7 @@ export default function UploadPage() {
         }
 
         const { error: dbError } = await supabase.from('videos').insert(videoData);
-
-        if (dbError) {
-          throw new Error(dbError.message);
-        }
+        if (dbError) throw new Error(dbError.message);
 
         completedFiles++;
         setUploadProgress((completedFiles / totalFiles) * 100);
@@ -209,8 +239,7 @@ export default function UploadPage() {
       setUploadSuccess(true);
       setFiles([]);
       setShowPublishOptions(false);
-      
-      // Reset form
+      setCurrentFile('');
       setTitleTemplate('{filename}');
       setDescription('');
       setTags('');
@@ -222,7 +251,6 @@ export default function UploadPage() {
       setRandomStartDate('');
       setRandomEndDate('');
       setPublishImmediately(false);
-      
     } catch (error: any) {
       console.error('Upload Error:', error);
       setUploadError(error.message);
@@ -231,317 +259,401 @@ export default function UploadPage() {
     }
   };
 
+  const totalSize = files.reduce((acc, f) => acc + f.size, 0);
+
   return (
-    <div className="max-w-4xl mx-auto space-y-8">
-      <div>
-        <h2 className="text-2xl font-bold tracking-tight">Bulk Upload</h2>
-        <p className="text-slate-500">Upload your videos to Google Drive and sync metadata to Supabase.</p>
+    <div className="max-w-3xl mx-auto space-y-6 pb-12">
+
+      {/* ── Header ── */}
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight text-slate-900">Bulk Upload</h2>
+          <p className="text-slate-500 text-sm mt-0.5">Upload video lên Google Drive và đồng bộ metadata về Supabase.</p>
+        </div>
+        <StepIndicator current={step} />
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Upload Videos</CardTitle>
-          <CardDescription>Drag and drop your video files here.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {uploadError && (
-            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start text-red-800">
-              <AlertCircle className="h-5 w-5 mr-3 shrink-0 text-red-600 mt-0.5" />
-              <div>
-                <p className="font-medium text-red-900">Upload Failed</p>
-                <p className="text-sm text-red-700 mt-1">{uploadError}</p>
-              </div>
-            </div>
-          )}
+      {/* ── Drop Zone ── */}
+      <div
+        {...getRootProps()}
+        className={`relative group rounded-2xl border-2 border-dashed cursor-pointer transition-all duration-200 overflow-hidden
+          ${isDragActive
+            ? 'border-slate-900 bg-slate-900/5 scale-[1.01]'
+            : files.length > 0
+              ? 'border-slate-300 bg-slate-50/60 py-6'
+              : 'border-slate-300 bg-slate-50 hover:border-slate-400 hover:bg-white py-14'
+          }`}
+      >
+        <input {...getInputProps()} />
 
-          <div 
-            {...getRootProps()} 
-            className={`border-2 border-dashed rounded-xl p-12 text-center cursor-pointer transition-colors ${
-              isDragActive ? 'border-red-500 bg-red-50' : 'border-slate-300 hover:border-slate-400 bg-slate-50'
-            }`}
-          >
-            <input {...getInputProps()} />
-            <UploadCloud className="mx-auto h-12 w-12 text-slate-400 mb-4" />
+        {files.length === 0 ? (
+          <div className="flex flex-col items-center gap-4 px-6 text-center">
+            <div className={`rounded-2xl p-5 transition-colors ${isDragActive ? 'bg-slate-900 text-white' : 'bg-white border border-slate-200 text-slate-400 group-hover:border-slate-300 group-hover:text-slate-600'} shadow-sm`}>
+              <UploadCloud className="h-10 w-10" />
+            </div>
             {isDragActive ? (
-              <p className="text-lg font-medium text-red-600">Drop the videos here ...</p>
+              <p className="text-lg font-semibold text-slate-900">Thả file vào đây…</p>
             ) : (
-              <div className="space-y-2">
-                <p className="text-lg font-medium text-slate-700">Drag & drop videos here, or click to select files</p>
-                <p className="text-sm text-slate-500">Supports MP4, MOV, AVI, MKV up to 10GB</p>
-              </div>
+              <>
+                <div>
+                  <p className="text-base font-semibold text-slate-700">Kéo & thả video vào đây</p>
+                  <p className="text-sm text-slate-400 mt-1">hoặc <span className="text-slate-700 font-medium underline underline-offset-2">click để chọn file</span></p>
+                </div>
+                <div className="flex items-center gap-2 text-xs text-slate-400">
+                  {['MP4', 'MOV', 'AVI', 'MKV'].map(f => (
+                    <span key={f} className="px-2 py-0.5 bg-white border border-slate-200 rounded-full font-mono">{f}</span>
+                  ))}
+                  <span className="px-2 py-0.5 bg-white border border-slate-200 rounded-full">tối đa 10GB</span>
+                </div>
+              </>
             )}
           </div>
-
-          {files.length > 0 && (
-            <div className="mt-8 space-y-4">
-              <h3 className="font-medium text-slate-900">Selected Files ({files.length})</h3>
-              <div className="space-y-3">
-                {files.map((file, index) => (
-                  <div key={index} className="flex items-center justify-between p-3 bg-white border border-slate-200 rounded-lg shadow-sm">
-                    <div className="flex items-center space-x-3 overflow-hidden">
-                      <div className="bg-red-100 p-2 rounded">
-                        <FileVideo className="h-5 w-5 text-red-600" />
-                      </div>
-                      <div className="truncate">
-                        <p className="text-sm font-medium text-slate-900 truncate">{file.name}</p>
-                        <p className="text-xs text-slate-500">{(file.size / (1024 * 1024)).toFixed(2)} MB</p>
-                      </div>
-                    </div>
-                    <Button variant="ghost" size="icon" onClick={() => removeFile(index)} className="text-slate-400 hover:text-red-600">
-                      <X className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ))}
+        ) : (
+          <div className="px-5 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-slate-900 flex items-center justify-center flex-shrink-0">
+                <UploadCloud className="h-4 w-4 text-white" />
               </div>
-            </div>
-          )}
-
-          {isUploading && (
-            <div className="mt-8 space-y-2">
-              <div className="flex justify-between text-sm font-medium text-slate-700">
-                <span>Uploading to Google Drive & Syncing to Supabase...</span>
-                <span>{Math.round(uploadProgress)}%</span>
-              </div>
-              <div className="w-full bg-slate-200 rounded-full h-2.5">
-                <div 
-                  className="bg-red-600 h-2.5 rounded-full transition-all duration-300 ease-in-out" 
-                  style={{ width: `${uploadProgress}%` }}
-                ></div>
-              </div>
-            </div>
-          )}
-
-          {uploadSuccess && (
-            <div className="mt-8 p-4 bg-emerald-50 border border-emerald-200 rounded-lg flex items-center text-emerald-800">
-              <CheckCircle2 className="h-5 w-5 mr-3 text-emerald-600" />
               <div>
-                <p className="font-medium">Upload Successful!</p>
-                <p className="text-sm text-emerald-600 mt-1">Files saved to Drive and metadata synced to Supabase.</p>
+                <p className="text-sm font-semibold text-slate-700">{files.length} file đã chọn</p>
+                <p className="text-xs text-slate-400">{fmtSize(totalSize)} tổng · Click để thêm file</p>
               </div>
             </div>
-          )}
-        </CardContent>
-        <CardFooter className="flex justify-end border-t pt-6 space-x-3">
-          {files.length > 0 && !isUploading && (
-            <>
-              <Button 
-                variant="outline"
-                onClick={() => setShowPublishOptions(false)}
-                className="min-w-[140px]"
-              >
-                Cancel
-              </Button>
-              <Button 
-                onClick={() => {
-                  setPublishImmediately(false);
-                  setShowPublishOptions(true);
-                }} 
-                disabled={isUploading}
-                className="min-w-[140px]"
-                variant={publishImmediately ? "outline" : "default"}
-              >
-                Lên Lịch
-              </Button>
-              <Button 
-                onClick={() => {
-                  setPublishImmediately(true);
-                  setShowPublishOptions(true);
-                }} 
-                disabled={isUploading}
-                className="bg-green-600 hover:bg-green-700 text-white min-w-[180px] font-semibold"
-                variant={publishImmediately ? "default" : "outline"}
-              >
-                🚀 Đăng Ngay Lập Tức
-              </Button>
-            </>
-          )}
-          {showPublishOptions && files.length > 0 && !isUploading && (
-            <Button 
-              onClick={handleUpload} 
-              disabled={files.length === 0 || isUploading}
-              className="bg-red-600 hover:bg-red-700 text-white min-w-[120px]"
-            >
-              {isUploading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  {publishImmediately ? 'Đang đăng...' : 'Đang lên lịch...'}
-                </>
-              ) : (
-                publishImmediately ? '🚀 Đăng Ngay!' : 'Xác Nhận Lên Lịch'
-              )}
-            </Button>
-          )}
-        </CardFooter>
-      </Card>
+            <span className="text-xs text-slate-400 font-medium border border-dashed border-slate-300 px-3 py-1.5 rounded-lg">+ Thêm file</span>
+          </div>
+        )}
+      </div>
 
-      {/* Metadata Form (Shows when files are selected) */}
+      {/* ── File List ── */}
       {files.length > 0 && !isUploading && !uploadSuccess && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Batch Metadata Settings</CardTitle>
-            <CardDescription>Apply these settings to all uploaded videos.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="space-y-2">
-              <Label htmlFor="title-template">Title Template</Label>
-              <Input 
-                id="title-template" 
-                value={titleTemplate}
-                onChange={(e) => setTitleTemplate(e.target.value)}
-                placeholder="e.g., {filename} | My Channel" 
-              />
-              <p className="text-xs text-slate-500">Use {'{filename}'} to insert the original file name.</p>
+        <div className="space-y-2">
+          {files.map((file, index) => (
+            <div
+              key={index}
+              className="flex items-center gap-3 p-3 bg-white border border-slate-200 rounded-xl shadow-sm hover:border-slate-300 transition-colors group"
+            >
+              <div className="w-9 h-9 rounded-lg bg-red-50 border border-red-100 flex items-center justify-center flex-shrink-0">
+                <FileVideo className="h-4 w-4 text-red-500" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-slate-800 truncate">{file.name}</p>
+                <p className="text-xs text-slate-400 mt-0.5">{fmtSize(file.size)}</p>
+              </div>
+              <button
+                onClick={(e) => { e.stopPropagation(); removeFile(index); }}
+                className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100"
+              >
+                <X className="h-4 w-4" />
+              </button>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="description">Default Description</Label>
-              <Textarea 
-                id="description" 
+          ))}
+        </div>
+      )}
+
+      {/* ── Upload Progress ── */}
+      {isUploading && (
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-slate-900 flex items-center justify-center flex-shrink-0">
+              <Loader2 className="h-5 w-5 text-white animate-spin" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-slate-800">
+                {publishImmediately ? 'Đang đăng ngay lên YouTube…' : 'Đang upload & lên lịch…'}
+              </p>
+              <p className="text-xs text-slate-400 truncate mt-0.5">{currentFile || 'Đang xử lý…'}</p>
+            </div>
+            <span className="text-2xl font-bold text-slate-900 tabular-nums">{Math.round(uploadProgress)}%</span>
+          </div>
+          <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+            <div
+              className="h-full bg-slate-900 rounded-full transition-all duration-500 ease-out"
+              style={{ width: `${uploadProgress}%` }}
+            />
+          </div>
+          <p className="text-xs text-slate-400 text-center">Đừng đóng tab này trong khi đang upload</p>
+        </div>
+      )}
+
+      {/* ── Success Banner ── */}
+      {uploadSuccess && (
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 flex items-start gap-4">
+          <div className="w-10 h-10 rounded-xl bg-emerald-500 flex items-center justify-center flex-shrink-0">
+            <CheckCircle2 className="h-5 w-5 text-white" />
+          </div>
+          <div>
+            <p className="font-semibold text-emerald-900">Upload thành công!</p>
+            <p className="text-sm text-emerald-700 mt-0.5">
+              File đã được lưu vào Google Drive và metadata đã đồng bộ về Supabase.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ── Error Banner ── */}
+      {uploadError && (
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-5 flex items-start gap-4">
+          <div className="w-10 h-10 rounded-xl bg-red-500 flex items-center justify-center flex-shrink-0">
+            <AlertCircle className="h-5 w-5 text-white" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold text-red-900">Upload thất bại</p>
+            <p className="text-sm text-red-700 mt-0.5 break-words">{uploadError}</p>
+          </div>
+          <button onClick={() => setUploadError(null)} className="text-red-400 hover:text-red-600 flex-shrink-0">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
+      {/* ── Metadata Form ── */}
+      {files.length > 0 && !isUploading && !uploadSuccess && (
+        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+          {/* Section header */}
+          <div className="flex items-center gap-3 px-6 py-4 border-b border-slate-100 bg-slate-50/60">
+            <FileText className="h-4 w-4 text-slate-400" />
+            <span className="text-sm font-semibold text-slate-700">Metadata cho tất cả video</span>
+            <span className="ml-auto text-xs text-slate-400 bg-white border border-slate-200 px-2 py-0.5 rounded-full">{files.length} file</span>
+          </div>
+
+          <div className="p-6 space-y-5">
+            {/* Title Template */}
+            <div className="space-y-1.5">
+              <Label htmlFor="title-template" className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                Template tiêu đề
+              </Label>
+              <div className="relative">
+                <Input
+                  id="title-template"
+                  value={titleTemplate}
+                  onChange={e => setTitleTemplate(e.target.value)}
+                  placeholder="{filename} | Kênh của tôi"
+                  className="pr-10 font-mono text-sm"
+                />
+                <Sparkles className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-300" />
+              </div>
+              <p className="text-xs text-slate-400 flex items-center gap-1">
+                <Info className="h-3.5 w-3.5 flex-shrink-0" />
+                Dùng <code className="px-1 bg-slate-100 rounded text-slate-600 font-mono">{'{'+'filename'+'}'}</code> để chèn tên file gốc (không có đuôi).
+              </p>
+            </div>
+
+            {/* Description */}
+            <div className="space-y-1.5">
+              <Label htmlFor="description" className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                Mô tả mặc định
+              </Label>
+              <Textarea
+                id="description"
                 value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Enter the description for these videos..." 
-                rows={4} 
+                onChange={e => setDescription(e.target.value)}
+                placeholder="Nhập mô tả cho các video này…"
+                rows={3}
+                className="resize-none text-sm"
               />
             </div>
-            <div className="space-y-2 relative">
-              <Label htmlFor="tags">Tags (comma separated)</Label>
-              <Input 
-                id="tags" 
-                value={tags}
-                onChange={(e) => {
-                  setTags(e.target.value);
-                  setShowTagSuggestions(true);
-                }}
-                onFocus={() => setShowTagSuggestions(true)}
-                placeholder="#vlog #tech #review hoặc vlog, tech..." 
-              />
+
+            {/* Tags */}
+            <div className="space-y-1.5 relative">
+              <Label htmlFor="tags" className="text-xs font-semibold text-slate-500 uppercase tracking-wide flex items-center gap-1.5">
+                <Hash className="h-3.5 w-3.5" /> Tags
+              </Label>
+              <div className="relative">
+                <Input
+                  id="tags"
+                  value={tags}
+                  onChange={e => { setTags(e.target.value); setShowTagSuggestions(true); }}
+                  onFocus={() => setShowTagSuggestions(true)}
+                  placeholder="#vlog #tech #review hoặc vlog, tech…"
+                  className="text-sm"
+                />
+                <Tag className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-300" />
+              </div>
+
               {showTagSuggestions && suggestedTags.length > 0 && (
-                <div className="absolute z-50 w-full bg-white border rounded-md shadow-lg mt-1 p-2 flex flex-wrap gap-2">
-                  <p className="text-[10px] text-slate-400 w-full mb-1 uppercase font-bold">Gợi ý tag phổ biến:</p>
-                  {suggestedTags.filter(t => !tags.includes(t)).map(tag => (
-                    <button 
-                      key={tag} 
-                      onClick={() => {
-                        const currentTags = tags.split(/[\s,]+/).map(t => t.trim()).filter(t => t);
-                        const normalizedTag = tag.startsWith('#') ? tag : `#${tag}`;
-                        if (!currentTags.includes(normalizedTag)) {
-                          setTags([...currentTags, normalizedTag].join(' ') + ' ');
-                        }
-                      }}
-                      className="text-xs bg-slate-100 hover:bg-indigo-100 hover:text-indigo-600 px-2 py-1 rounded-full transition-colors"
-                    >
-                      #{tag}
-                    </button>
-                  ))}
-                  <button onClick={() => setShowTagSuggestions(false)} className="text-[10px] text-indigo-500 w-full text-right mt-1 hover:underline">Đóng</button>
+                <div className="absolute z-50 w-full top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-widest">Tag phổ biến</p>
+                    <button onClick={() => setShowTagSuggestions(false)} className="text-[10px] text-slate-400 hover:text-slate-600">Đóng</button>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {suggestedTags.filter(t => !tags.includes(t)).map(tag => (
+                      <button
+                        key={tag}
+                        onClick={() => {
+                          const currentTags = tags.split(/[\s,]+/).map(t => t.trim()).filter(t => t);
+                          const normalizedTag = tag.startsWith('#') ? tag : `#${tag}`;
+                          if (!currentTags.includes(normalizedTag)) {
+                            setTags([...currentTags, normalizedTag].join(' ') + ' ');
+                          }
+                        }}
+                        className="text-xs bg-slate-100 hover:bg-slate-900 hover:text-white px-2.5 py-1 rounded-full transition-colors font-medium"
+                      >
+                        #{tag}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
-            <div className="space-y-4 border-t pt-4 mt-4">
-              <h3 className="font-medium text-slate-900">Scheduling Options</h3>
-              
-              <div className="space-y-2">
-                <Label>Schedule Type</Label>
-                <Select value={scheduleType} onValueChange={(val) => setScheduleType(val || 'single')}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select schedule type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="single">Single Post</SelectItem>
-                    <SelectItem value="recurring">Recurring Post</SelectItem>
-                    <SelectItem value="continuous">Continuous (Theo mốc giờ Settings)</SelectItem>
-                    <SelectItem value="random">Random (Theo mốc giờ Settings)</SelectItem>
-                  </SelectContent>
-                </Select>
+          </div>
+
+          {/* ── Schedule Options ── */}
+          <div className="border-t border-slate-100">
+            <div className="flex items-center gap-3 px-6 py-4 bg-slate-50/60">
+              <CalendarDays className="h-4 w-4 text-slate-400" />
+              <span className="text-sm font-semibold text-slate-700">Lịch đăng</span>
+            </div>
+
+            <div className="p-6 space-y-5">
+              {/* Schedule type selector */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {SCHEDULE_OPTIONS.map(opt => {
+                  const Icon = opt.icon;
+                  const active = scheduleType === opt.value;
+                  return (
+                    <button
+                      key={opt.value}
+                      onClick={() => setScheduleType(opt.value)}
+                      className={`flex flex-col items-start gap-1.5 p-3 rounded-xl border text-left transition-all ${
+                        active
+                          ? 'border-slate-900 bg-slate-900 text-white shadow-sm'
+                          : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
+                      }`}
+                    >
+                      <Icon className={`h-4 w-4 ${active ? 'text-white' : 'text-slate-400'}`} />
+                      <span className="text-xs font-semibold leading-tight">{opt.label}</span>
+                      <span className={`text-[10px] leading-tight ${active ? 'text-slate-300' : 'text-slate-400'}`}>{opt.desc}</span>
+                    </button>
+                  );
+                })}
               </div>
 
+              {/* Schedule config */}
               {scheduleType === 'single' && (
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="schedule-date">Schedule Date</Label>
-                    <Input 
-                      id="schedule-date" 
-                      type="date" 
-                      value={scheduleDate}
-                      onChange={(e) => setScheduleDate(e.target.value)}
-                    />
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-slate-500">Ngày đăng</Label>
+                    <Input type="date" value={scheduleDate} onChange={e => setScheduleDate(e.target.value)} className="h-9 text-sm" />
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="schedule-time">Schedule Time</Label>
-                    <Input 
-                      id="schedule-time" 
-                      type="time" 
-                      value={scheduleTime}
-                      onChange={(e) => setScheduleTime(e.target.value)}
-                    />
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-slate-500">Giờ đăng</Label>
+                    <Input type="time" value={scheduleTime} onChange={e => setScheduleTime(e.target.value)} className="h-9 text-sm" />
                   </div>
                 </div>
               )}
 
               {scheduleType === 'recurring' && (
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Interval</Label>
-                    <Select value={recurringInterval} onValueChange={(val) => setRecurringInterval(val || 'daily')}>
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Select interval" />
-                      </SelectTrigger>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-slate-500">Chu kỳ</Label>
+                    <Select value={recurringInterval} onValueChange={v => setRecurringInterval(v || 'daily')}>
+                      <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="daily">Daily</SelectItem>
-                        <SelectItem value="weekly">Weekly</SelectItem>
-                        <SelectItem value="monthly">Monthly</SelectItem>
+                        <SelectItem value="daily">Mỗi ngày</SelectItem>
+                        <SelectItem value="weekly">Mỗi tuần</SelectItem>
+                        <SelectItem value="monthly">Mỗi tháng</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="schedule-time">Time of Day</Label>
-                    <Input 
-                      id="schedule-time" 
-                      type="time" 
-                      value={scheduleTime}
-                      onChange={(e) => setScheduleTime(e.target.value)}
-                    />
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-slate-500">Giờ đăng trong ngày</Label>
+                    <Input type="time" value={scheduleTime} onChange={e => setScheduleTime(e.target.value)} className="h-9 text-sm" />
                   </div>
                 </div>
               )}
 
               {scheduleType === 'continuous' && (
-                <div className="space-y-2">
-                  <Label htmlFor="continuous-hours">Post Every X Hours</Label>
-                  <Input 
-                    id="continuous-hours" 
-                    type="number" 
-                    min="1"
-                    value={continuousIntervalHours}
-                    onChange={(e) => setContinuousIntervalHours(e.target.value)}
-                  />
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-slate-500">Đăng mỗi X giờ</Label>
+                  <div className="relative max-w-[200px]">
+                    <Input
+                      type="number" min="1" max="168"
+                      value={continuousIntervalHours}
+                      onChange={e => setContinuousIntervalHours(e.target.value)}
+                      className="h-9 text-sm pr-12"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 font-medium">giờ</span>
+                  </div>
+                  <p className="text-xs text-slate-400">Worker sẽ tự động theo mốc giờ đã cài đặt trong Settings.</p>
                 </div>
               )}
 
               {scheduleType === 'random' && (
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="random-start">Start Date & Time</Label>
-                    <Input 
-                      id="random-start" 
-                      type="datetime-local" 
-                      value={randomStartDate}
-                      onChange={(e) => setRandomStartDate(e.target.value)}
-                    />
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-slate-500">Từ ngày & giờ</Label>
+                    <Input type="datetime-local" value={randomStartDate} onChange={e => setRandomStartDate(e.target.value)} className="h-9 text-sm" />
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="random-end">End Date & Time</Label>
-                    <Input 
-                      id="random-end" 
-                      type="datetime-local" 
-                      value={randomEndDate}
-                      onChange={(e) => setRandomEndDate(e.target.value)}
-                    />
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-slate-500">Đến ngày & giờ</Label>
+                    <Input type="datetime-local" value={randomEndDate} onChange={e => setRandomEndDate(e.target.value)} className="h-9 text-sm" />
                   </div>
                 </div>
               )}
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
+      )}
+
+      {/* ── Action Bar ── */}
+      {files.length > 0 && !isUploading && !uploadSuccess && (
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 p-4 rounded-2xl border border-slate-200 bg-white shadow-sm">
+          {/* Left summary */}
+          <div className="flex-1 text-sm text-slate-500">
+            <span className="font-semibold text-slate-800">{files.length} video</span>
+            {' '}·{' '}
+            <span>{fmtSize(totalSize)}</span>
+            {publishImmediately && (
+              <span className="ml-2 inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                <Zap className="h-3 w-3" /> Đăng ngay
+              </span>
+            )}
+          </div>
+
+          {/* Right actions */}
+          <div className="flex gap-2">
+            {showPublishOptions && (
+              <Button
+                variant="outline"
+                className="h-9 gap-1.5 text-slate-600"
+                onClick={() => { setShowPublishOptions(false); setPublishImmediately(false); }}
+              >
+                <X className="h-4 w-4" /> Hủy
+              </Button>
+            )}
+
+            {!showPublishOptions ? (
+              <>
+                <Button
+                  variant="outline"
+                  className="h-9 gap-1.5 flex-1 sm:flex-none"
+                  onClick={() => { setPublishImmediately(false); setShowPublishOptions(true); }}
+                >
+                  <CalendarDays className="h-4 w-4" /> Lên Lịch
+                </Button>
+                <Button
+                  className="h-9 gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white flex-1 sm:flex-none font-semibold"
+                  onClick={() => { setPublishImmediately(true); setShowPublishOptions(true); }}
+                >
+                  <Zap className="h-4 w-4" /> Đăng Ngay
+                </Button>
+              </>
+            ) : (
+              <Button
+                onClick={handleUpload}
+                disabled={files.length === 0}
+                className="h-9 gap-1.5 bg-slate-900 hover:bg-slate-800 text-white font-semibold px-6"
+              >
+                {publishImmediately ? (
+                  <><PlayCircle className="h-4 w-4" /> Xác nhận đăng ngay</>
+                ) : (
+                  <><ChevronRight className="h-4 w-4" /> Xác nhận lên lịch</>
+                )}
+              </Button>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );

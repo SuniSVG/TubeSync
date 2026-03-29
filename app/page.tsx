@@ -476,7 +476,7 @@ export default function LandingPage() {
           <div className="lp-footer">
             <div style={{display:'flex',alignItems:'center',gap:8}}>
               <Youtube style={{width:16,height:16,color:'#dc2626'}} />
-              <span className="footer-copy">© 2025 TubeSync Pro. All rights reserved.</span>
+              <span className="footer-copy">© 2026 TubeSync Pro. All rights reserved.</span>
             </div>
             <div className="footer-links">
               <a href="#" className="footer-link">Điều khoản</a>

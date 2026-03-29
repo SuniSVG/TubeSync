@@ -1,5 +1,13 @@
 -- 1. Khởi tạo Custom Types
 DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'subscription_tier') THEN
+        CREATE TYPE public.subscription_tier AS ENUM ('starter', 'pro', 'enterprise');
+    END IF;
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'video_status') THEN
         CREATE TYPE public.video_status AS ENUM ('warehouse', 'pending', 'processing', 'uploaded', 'failed');
     END IF;
@@ -12,30 +20,51 @@ ALTER TYPE public.video_status ADD VALUE IF NOT EXISTS 'warehouse' BEFORE 'pendi
 
 -- Bảng Profile người dùng (Quản lý hạn mức đăng bài)
 CREATE TABLE IF NOT EXISTS public.profiles (
-  id UUID REFERENCES auth.users ON DELETE CASCADE PRIMARY KEY,
-  email TEXT,
-  subscription_tier TEXT DEFAULT 'starter',
-  quota_limit INTEGER DEFAULT 10, -- Mặc định ban đầu là 10 video/tháng
+  id UUID NOT NULL PRIMARY KEY,
+  email TEXT UNIQUE NOT NULL,
+  subscription_tier public.subscription_tier DEFAULT 'starter',
+  quota_limit INTEGER DEFAULT 50,
   quota_used INTEGER DEFAULT 0,
   quota_used_today INTEGER DEFAULT 0,
+  total_credits INTEGER DEFAULT 0,
+  daily_credits INTEGER DEFAULT 0,
   last_quota_reset TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  preferred_post_times TEXT[] DEFAULT '{"08:00", "12:00", "18:00", "22:00"}', -- Mặc định 4 khung giờ
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  money INTEGER DEFAULT 0,
+  daily_video_limit INTEGER DEFAULT 1,
+  preferred_post_times TEXT[] DEFAULT '{"08:00", "12:00", "18:00", "22:00"}',
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  CONSTRAINT profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users (id) ON DELETE CASCADE
 );
 
--- Ensure new columns exist if the table was created previously
-DO $$ BEGIN 
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name='profiles' AND column_name='quota_used_today') THEN
+DO $$ 
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='quota_used_today') THEN
         ALTER TABLE public.profiles ADD COLUMN quota_used_today INTEGER DEFAULT 0;
     END IF;
 
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name='profiles' AND column_name='last_quota_reset') THEN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='last_quota_reset') THEN
         ALTER TABLE public.profiles ADD COLUMN last_quota_reset TIMESTAMP WITH TIME ZONE DEFAULT NOW();
     END IF;
 
-    -- Ensure preferred_post_times exists for older tables
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name='profiles' AND column_name='preferred_post_times') THEN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='preferred_post_times') THEN
         ALTER TABLE public.profiles ADD COLUMN preferred_post_times TEXT[] DEFAULT '{"08:00", "12:00", "18:00", "22:00"}';
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='total_credits') THEN
+        ALTER TABLE public.profiles ADD COLUMN total_credits INTEGER DEFAULT 0;
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='daily_credits') THEN
+        ALTER TABLE public.profiles ADD COLUMN daily_credits INTEGER DEFAULT 0;
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='money') THEN
+        ALTER TABLE public.profiles ADD COLUMN money INTEGER DEFAULT 0;
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='daily_video_limit') THEN
+        ALTER TABLE public.profiles ADD COLUMN daily_video_limit INTEGER DEFAULT 1;
     END IF;
 END $$;
 
@@ -72,6 +101,8 @@ CREATE TABLE IF NOT EXISTS public.videos (
   youtube_video_id TEXT,
   error_message TEXT,
   app_uploaded BOOLEAN DEFAULT FALSE,
+  retry_count INTEGER DEFAULT 0,
+  max_retries INTEGER DEFAULT 3,
   schedule_type TEXT DEFAULT 'single',
   recurring_interval TEXT,
   continuous_interval_hours INTEGER,
@@ -127,12 +158,23 @@ RETURNS TRIGGER AS $$
 DECLARE
     user_limit INTEGER;
     user_used INTEGER;
-    today_reset TIMESTAMP WITH TIME ZONE;
+    last_reset TIMESTAMP WITH TIME ZONE;
 BEGIN
-    -- Kiểm tra reset quota ngày (Nếu last_quota_reset khác ngày hiện tại)
-    IF (SELECT date_trunc('day', last_quota_reset) FROM public.profiles WHERE id = NEW.user_id) < date_trunc('day', NOW()) THEN
+    -- Lấy thời điểm reset cuối cùng
+    SELECT last_quota_reset INTO last_reset FROM public.profiles WHERE id = NEW.user_id;
+
+    -- 1. Reset Quota Tháng (Nếu bước sang tháng mới)
+    IF date_trunc('month', last_reset) < date_trunc('month', NOW()) THEN
+        UPDATE public.profiles 
+        SET quota_used = 0
+        WHERE id = NEW.user_id;
+    END IF;
+
+    -- 2. Reset Quota ngày & Daily Credits (Nếu bước sang ngày mới)
+    IF date_trunc('day', last_reset) < date_trunc('day', NOW()) THEN
         UPDATE public.profiles 
         SET quota_used_today = 0, 
+            daily_credits = 0,
             last_quota_reset = NOW() 
         WHERE id = NEW.user_id;
     END IF;
@@ -154,6 +196,17 @@ BEGIN
     WHERE id = NEW.user_id;
 
     RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Hàm tăng Credit sau khi upload thành công (Dùng cho Python Worker)
+CREATE OR REPLACE FUNCTION public.increment_user_stats(user_id_param UUID)
+RETURNS void AS $$
+BEGIN
+  UPDATE public.profiles
+  SET total_credits = total_credits + 1,
+      daily_credits = daily_credits + 1
+  WHERE id = user_id_param;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 

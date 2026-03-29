@@ -1,6 +1,7 @@
 import os
 import sys
 import hashlib
+import random
 import logging
 import time
 from datetime import datetime, timedelta, timezone
@@ -10,16 +11,30 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from google.oauth2.credentials import Credentials
 
-load_dotenv()
-
 # Cấu hình
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.dirname(BASE_DIR)
+env_path = os.path.join(ROOT_DIR, ".env")
+
+if os.path.exists(env_path):
+    load_dotenv(env_path)
+    logging.info(f"Đã tải biến môi trường từ: {env_path}")
+else:
+    # Fallback to default search
+    load_dotenv()
+
+def get_clean_env(key, default=None):
+    val = os.getenv(key, default)
+    if val:
+        return val.strip().strip("'").strip('"')
+    return val
+
 VIDEO_DIR = os.path.join(BASE_DIR, "videos", "pending")
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
+SUPABASE_URL = get_clean_env("SUPABASE_URL")
+SUPABASE_KEY = get_clean_env("SUPABASE_SERVICE_KEY")
 INTERVAL_MINUTES = 5  # Giãn cách mỗi video 5 phút
-GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
-GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
+GOOGLE_CLIENT_ID = get_clean_env("GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_SECRET = get_clean_env("GOOGLE_CLIENT_SECRET")
 
 if sys.platform == "win32":
     import io
@@ -32,6 +47,10 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 log = logging.getLogger(__name__)
+
+if not SUPABASE_URL or not SUPABASE_KEY:
+    log.error("Thiếu SUPABASE_URL hoặc SUPABASE_SERVICE_KEY trong môi trường.")
+    exit(1)
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -113,7 +132,9 @@ def scan_and_register():
         if last_schedule < datetime.now(timezone.utc):
             next_run = datetime.now(timezone.utc) + timedelta(minutes=5)
         else:
-            next_run = last_schedule + timedelta(minutes=INTERVAL_MINUTES)
+            # Thêm ngẫu nhiên từ 0-120 giây để tránh bị nhận diện là bot upload đồng loạt
+            jitter = random.randint(0, 120)
+            next_run = last_schedule + timedelta(minutes=INTERVAL_MINUTES) + timedelta(seconds=jitter)
         
         last_schedule = next_run
         title = os.path.splitext(filename)[0]

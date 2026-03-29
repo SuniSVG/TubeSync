@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Youtube, LayoutDashboard, Upload, CalendarClock, Settings, LogOut, CreditCard } from 'lucide-react';
+import { Youtube, LayoutDashboard, Upload, CalendarClock, Settings, LogOut, CreditCard, Library } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -70,6 +70,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <Link href="/dashboard" className="flex items-center px-4 py-3 text-slate-700 bg-slate-100 rounded-lg font-medium">
             <LayoutDashboard className="h-5 w-5 mr-3 text-slate-500" />
             Dashboard
+          </Link>
+          <Link href="/dashboard/library" className="flex items-center px-4 py-3 text-slate-600 hover:text-slate-900 hover:bg-slate-50 rounded-lg font-medium transition-colors">
+            <Library className="h-5 w-5 mr-3 text-slate-400" />
+            Your Library
           </Link>
           <Link href="/dashboard/upload" className="flex items-center px-4 py-3 text-slate-600 hover:text-slate-900 hover:bg-slate-50 rounded-lg font-medium transition-colors">
             <Upload className="h-5 w-5 mr-3 text-slate-400" />

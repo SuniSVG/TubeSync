@@ -44,7 +44,7 @@ const upload = multer({
    ============================================================ */
 
 const supabase = createClient(
-  process.env.SUPABASE_URL,
+  process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.SUPABASE_SERVICE_KEY
 );
 
@@ -157,7 +157,7 @@ app.get("/auth/google", async (req, res) => {
     const tempClient = new google.auth.OAuth2(
       process.env.GOOGLE_CLIENT_ID,
       process.env.GOOGLE_CLIENT_SECRET,
-      process.env.REDIRECT_URI
+      process.env.REDIRECT_URI || `${process.env.FRONTEND_URL}/api/auth/callback` 
     );
 
     const url = tempClient.generateAuthUrl({

@@ -1,7 +1,6 @@
  'use client';
 
-import Link from 'next/link';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { LayoutDashboard, BookOpen, Users, BarChart3, Upload, Calendar, Settings, History } from 'lucide-react';
 
 export default function DashboardTabs({ children }: { children: React.ReactNode }) {
@@ -21,4 +20,3 @@ export default function DashboardTabs({ children }: { children: React.ReactNode 
     </Tabs>
   );
 }
-

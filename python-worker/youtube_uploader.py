@@ -14,6 +14,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from google.auth.transport.requests import Request
 from dotenv import load_dotenv
+import google.generativeai as genai
 
 # ==========================================
 # LOGGING SETUP
@@ -42,21 +43,39 @@ log = logging.getLogger(__name__)
 
 # Load .env từ thư mục gốc (cha của thư mục hiện tại)
 ROOT_DIR = os.path.dirname(BASE_DIR)
-load_dotenv(os.path.join(ROOT_DIR, ".env"))
+env_path = os.path.join(ROOT_DIR, ".env")
+if os.path.exists(env_path):
+    load_dotenv(env_path)
+    log.info(f"Đã tải biến môi trường từ: {env_path}")
+else:
+    log.warning(f"KHÔNG tìm thấy file .env tại: {env_path}")
+
+def get_clean_env(key, default=None):
+    """Lấy biến môi trường và loại bỏ khoảng trắng, dấu ngoặc kép dư thừa."""
+    val = os.environ.get(key, default)
+    if val:
+        # Xử lý trường hợp biến bị bao bởi dấu nháy đơn/kép (thường gặp trên Windows)
+        return val.strip().strip("'").strip('"')
+    return val
 
 # ==========================================
 # CONFIGURATION
 # ==========================================
-SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY")
-GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID")
-GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET")
-CHECK_INTERVAL_SECONDS = int(os.environ.get("CHECK_INTERVAL_SECONDS", "300"))
+SUPABASE_URL = get_clean_env("SUPABASE_URL")
+SUPABASE_KEY = get_clean_env("SUPABASE_SERVICE_KEY")
+GOOGLE_CLIENT_ID = get_clean_env("GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_SECRET = get_clean_env("GOOGLE_CLIENT_SECRET")
+GEMINI_API_KEY = get_clean_env("GEMINI_API_KEY")
+raw_interval = get_clean_env("CHECK_INTERVAL_SECONDS", "300")
+CHECK_INTERVAL_SECONDS = int(raw_interval) if raw_interval and raw_interval.isdigit() else 300
 DAILY_LIMIT = 5
 
 if not all([SUPABASE_URL, SUPABASE_KEY, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET]):
-    log.error("Thiếu biến môi trường. Kiểm tra lại: SUPABASE_URL, SUPABASE_SERVICE_KEY, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET")
+    log.error("❌ Thiếu biến môi trường quan trọng. Vui lòng kiểm tra file .env tại thư mục gốc.")
     exit(1)
+
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -201,6 +220,11 @@ def get_youtube_client(channel: dict) -> tuple:
             creds.refresh(Request())
         except Exception as e:
             err = str(e).lower()
+            if "invalid_client" in err:
+                raise Exception(
+                    "Lỗi Google (invalid_client): Client ID hoặc Secret trong file .env không khớp với ứng dụng Google Cloud. "
+                    "Vui lòng kiểm tra lại thông tin trong Google Console và .env."
+                )
             if "invalid_grant" in err or "token has been expired" in err:
                 raise Exception(
                     "Refresh token không còn hiệu lực (bị thu hồi hoặc hết hạn). "
@@ -234,6 +258,38 @@ def update_channel_stats(youtube, channel_id):
     except Exception as e:
         log.warning(f"Không thể cập nhật stats kênh: {e}")
 
+def ai_rewrite_metadata(title, description):
+    """
+    Sử dụng Gemini để viết lại Title và Description giúp tránh trùng lặp content (Mục 1).
+    """
+    if not GEMINI_API_KEY:
+        return title, description
+    
+    try:
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        prompt = (
+            f"Hãy viết lại tiêu đề và mô tả YouTube sau đây để trở nên thu hút hơn và không bị đánh dấu trùng lặp. "
+            f"Giữ nguyên các hashtag nếu có.\n\n"
+            f"Tiêu đề gốc: {title}\n"
+            f"Mô tả gốc: {description}\n\n"
+            f"Trả về kết quả theo định dạng JSON:\n"
+            f"{{\"title\": \"...\", \"description\": \"...\"}}"
+        )
+        response = model.generate_content(prompt)
+        # Làm sạch chuỗi JSON từ Markdown của Gemini
+        json_str = re.sub(r'```json|```', '', response.text).strip()
+        import json
+        data = json.loads(json_str)
+        
+        new_title = data.get("title", title)
+        new_desc = data.get("description", description)
+        
+        log.info(f"✨ AI đã rewrite thành công: {new_title[:30]}...")
+        return new_title, new_desc
+    except Exception as e:
+        log.warning(f"⚠️ Lỗi khi dùng AI Rewrite: {e}")
+        return title, description
+
 def upload_to_youtube(youtube, video: dict, video_path: str) -> str:
     """
     Upload video lên YouTube. Trả về youtube_video_id.
@@ -241,10 +297,13 @@ def upload_to_youtube(youtube, video: dict, video_path: str) -> str:
     log.info("Đang upload lên YouTube...")
 
     description = (video.get("description") or "").strip()
+    title = video["title"]
+
+    # Mục 1: Auto Rewrite content (AI Spin)
+    title, description = ai_rewrite_metadata(title, description)
+
     if description:
         description += "\n\n---\nPublished via TubeSync Pro 🚀"
-    else:
-        description = "Published via TubeSync Pro 🚀"
 
     tags = video.get("tags") or []
     if isinstance(tags, str):
@@ -256,7 +315,7 @@ def upload_to_youtube(youtube, video: dict, video_path: str) -> str:
 
     body = {
         "snippet": {
-            "title": video["title"],
+            "title": title,
             "description": description,
             "tags": tags,
             "categoryId": str(video.get("category_id", "22")),
@@ -374,7 +433,11 @@ def process_pending_videos():
             # 4. Cập nhật thống kê kênh sau khi upload
             update_channel_stats(youtube, channel["id"])
 
-            # 4. Cập nhật DB — thành công
+            # 4. Cập nhật DB và Credits
+            # Sử dụng RPC hoặc query trực tiếp để tăng giá trị (Tránh race condition)
+            # Ở đây giả sử bạn đã có các cột này trong bảng profiles
+            supabase.rpc('increment_user_stats', {'user_id_param': video["user_id"]}).execute()
+            
             data_to_update = {
                 "status": "uploaded",
                 "youtube_video_id": yt_video_id,
@@ -415,10 +478,24 @@ def process_pending_videos():
                 )
 
             log.error(f"❌ Lỗi video '{video['title']}': {error_msg}")
+            
+            # Mục 9: Retry + fail handling
+            current_retries = video.get("retry_count", 0)
+            max_retries = video.get("max_retries", 3)
+            
+            # Nếu là lỗi Quota YouTube hoặc lỗi Token, không nên retry ngay lập tức
+            is_fatal = any(x in err_lower for x in ["quota", "invalid_grant", "scopes"])
+            
+            if current_retries < max_retries and not is_fatal:
+                new_status = "pending" # Đẩy lại về hàng chờ
+                log.info(f"🔄 Sẽ thử lại lần {current_retries + 1}/{max_retries} sau 5 phút.")
+            else:
+                new_status = "failed"
 
             try:
                 supabase.table("videos").update({
-                    "status": "failed",
+                    "status": new_status,
+                    "retry_count": current_retries + 1,
                     "error_message": error_msg[:1000], # Prevent truncation error 22001
                 }).eq("id", video_id).execute()
             except Exception as db_err:
