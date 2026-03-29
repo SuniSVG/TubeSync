@@ -82,6 +82,7 @@ export default function LandingPage() {
         .lp-logo-text span{color:#dc2626}
         .lp-badge-sm{font-size:9px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;padding:2px 7px;border-radius:20px;background:rgba(220,38,38,0.08);border:1px solid rgba(220,38,38,0.2);color:#dc2626}
         .nav-right{display:flex;align-items:center;gap:6px}
+        .nav-links{display:flex;align-items:center;gap:4px;margin-right:12px}
         .lp-nav-link{font-size:13px;font-weight:500;color:#666;text-decoration:none;padding:6px 12px;border-radius:20px;transition:all 0.2s}
         .lp-nav-link:hover{color:#111;background:rgba(0,0,0,0.04)}
         @media(max-width:768px){.lp-nav-link{display:none}}
@@ -245,10 +246,13 @@ export default function LandingPage() {
             <span className="lp-badge-sm">PRO</span>
           </Link>
           <div className="nav-right">
-            <a href="#how" className="lp-nav-link">Cách dùng</a>
-            <a href="#case" className="lp-nav-link">Case study</a>
-            <a href="#reviews" className="lp-nav-link">Đánh giá</a>
-            <Link href="/login" className="lp-nav-cta">Bắt đầu →</Link>
+            <div className="nav-links">
+              <a href="#how" className="lp-nav-link">Tính năng</a>
+              <a href="#case" className="lp-nav-link">Thành công</a>
+              <Link href="/about" className="lp-nav-link">Đội ngũ</Link>
+              <Link href="/dashboard/tags" className="lp-nav-link">Xu hướng</Link>
+            </div>
+            <Link href="/login" className="lp-nav-cta shadow-red-500/20">Dùng thử ngay</Link>
           </div>
         </nav>
 

@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   quota_limit INTEGER DEFAULT 50,
   quota_used INTEGER DEFAULT 0,
   quota_used_today INTEGER DEFAULT 0,
+  used_today INTEGER DEFAULT 0, -- Cột mới theo yêu cầu
   total_credits INTEGER DEFAULT 0,
   daily_credits INTEGER DEFAULT 0,
   last_quota_reset TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -121,10 +122,22 @@ CREATE TABLE IF NOT EXISTS public.tags_library (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Bảng quản lý Team
+CREATE TABLE IF NOT EXISTS public.team_members (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  owner_id UUID REFERENCES auth.users ON DELETE CASCADE NOT NULL,
+  member_email TEXT NOT NULL,
+  role TEXT DEFAULT 'editor', -- admin, editor, viewer
+  status TEXT DEFAULT 'pending', -- pending, active
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE(owner_id, member_email)
+);
+
 -- 3. Row Level Security (RLS) & Clean up Policies
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.youtube_channels ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.videos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.team_members ENABLE ROW LEVEL SECURITY;
 
 -- Xóa và tạo lại Policy để tránh lỗi "already exists"
 DROP POLICY IF EXISTS "Users can view own profile" ON public.profiles;
@@ -138,6 +151,10 @@ CREATE POLICY "Users can manage own videos" ON public.videos FOR ALL USING (auth
 
 DROP POLICY IF EXISTS "Anyone can view tags" ON public.tags_library;
 CREATE POLICY "Anyone can view tags" ON public.tags_library FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Users can manage their teams" ON public.team_members;
+CREATE POLICY "Users can manage their teams" ON public.team_members 
+FOR ALL USING (auth.uid() = owner_id OR member_email = (SELECT email FROM auth.users WHERE id = auth.uid()));
 
 -- 4. CHIẾN DỊCH "QUÉT SẠCH" TRIGGER LỖI (Sửa lỗi r2_key)
 -- Đoạn code này sẽ tự động tìm và xóa TẤT CẢ trigger đang bám trên bảng videos 
@@ -173,7 +190,8 @@ BEGIN
     -- 2. Reset Quota ngày & Daily Credits (Nếu bước sang ngày mới)
     IF date_trunc('day', last_reset) < date_trunc('day', NOW()) THEN
         UPDATE public.profiles 
-        SET quota_used_today = 0, 
+        SET quota_used_today = 0,
+            used_today = 0, -- Reset về 0 sau 00:00 (12:00 AM)
             daily_credits = 0,
             last_quota_reset = NOW() 
         WHERE id = NEW.user_id;
@@ -192,7 +210,8 @@ BEGIN
     -- Nếu còn hạn mức, tăng số lượng đã dùng
     UPDATE public.profiles 
     SET quota_used = quota_used + 1,
-        quota_used_today = quota_used_today + 1
+        quota_used_today = quota_used_today + 1,
+        used_today = used_today + 1
     WHERE id = NEW.user_id;
 
     RETURN NEW;
