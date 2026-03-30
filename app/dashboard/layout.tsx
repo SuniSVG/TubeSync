@@ -23,17 +23,31 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     const checkAuth = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
+        // Check for OAuth error params to prevent redirect loop
+        const url = new URL(window.location.href);
+        const error = url.searchParams.get('error');
+        const error_description = url.searchParams.get('error_description');
+        
+        if (error === 'server_error' && error_description?.includes('Database')) {
+          // Clear error params and redirect to login with message
+          url.searchParams.delete('error');
+          url.searchParams.delete('error_description');
+          url.searchParams.delete('error_code');
+          window.history.replaceState({}, '', url.toString());
+          router.push('/login?auth_error=database_user_creation');
+          return;
+        }
         router.push('/login');
-      } else {
-        setIsLoading(false);
-        // Lấy avatar từ kênh đầu tiên
-        const { data: channel } = await supabase
-          .from('youtube_channels')
-          .select('thumbnail_url')
-          .limit(1)
-          .single();
-        if (channel?.thumbnail_url) setAvatarUrl(channel.thumbnail_url);
+        return;
       }
+      setIsLoading(false);
+      // Lấy avatar từ kênh đầu tiên
+      const { data: channel } = await supabase
+        .from('youtube_channels')
+        .select('thumbnail_url')
+        .limit(1)
+        .single();
+      if (channel?.thumbnail_url) setAvatarUrl(channel.thumbnail_url);
     };
     
     checkAuth();

@@ -1,31 +1,44 @@
-# TubeSync Tags Page Implementation
+# Fix Google OAuth Login Loop - Database Error Saving New User
 
-## Plan Overview
-Create comprehensive tags management page at `app/dashboard/tags/page.tsx`:
-- User-specific tags aggregated from `videos.tags[]`
-- Popular tags from `tags_library`
-- Stats, copy-to-clipboard w/ auto #, library feel
+**Status**: Approved ✅ | Progress: 0/5 steps
 
-## Steps (0/4 completed)
+## Breakdown of Approved Plan
 
-### [ ] 1. Create TODO.md (this file)
-### [ ] 2. Update sidebar nav in app/dashboard/layout.tsx
-   - Add Tags link after Schedule
-   
-### [ ] 3. Implement full tags page in app/dashboard/tags/page.tsx
-   - Header w/ search
-   - Your Tags section (table w/ counts, delete/edit)
-   - Popular Tags section (library, copy #tag)
-   - Stats cards
-   
-### [ ] 4. Test & Polish
-   - Check Supabase queries
-   - UI responsiveness
-   - Copy functionality
+### ✅ 1. Create TODO.md (Completed)
 
-## Files to Edit
-- app/dashboard/layout.tsx
-- app/dashboard/tags/page.tsx
+### ✅ 2. Update database/supabase_schema.sql
+- Added INSERT RLS policy \"Service role manages profiles\" 
+- Improved `handle_new_user()` with UPSERT duplicate handling
+- Added orphaned profile cleanup
 
-Ready to start step-by-step. Current: Step 1 ✅
+### ✅ 3. Add error handling to dashboard pages
+```
+✅ app/dashboard/layout.tsx: OAuth error param detection → /login?auth_error=
+✅ app/dashboard/page.tsx: Clear error params on load
+✅ app/login/page.tsx: Handle auth_error=database_user_creation w/ friendly message
+```
+
+### ⏳ 4. Test & Deploy
+```
+1. Copy updated database/supabase_schema.sql → Supabase SQL Editor → Run
+2. railway up (or git push → Railway auto-deploy)
+3. Test: New incognito → Google OAuth → Should land on dashboard ✅
+```
+
+**Next**: Run schema in Supabase → Deploy → Test
+
+### ⏳ 4. Test & Deploy
+```
+1. Run schema changes in Supabase dashboard
+2. railway up (deploy)
+3. Test: New incognito → Google OAuth → Dashboard
+```
+
+### ⏳ 5. Verify & Cleanup
+```
+Monitor Supabase Edge Logs
+Update TODO.md → attempt_completion
+```
+
+**Next Step**: Edit `database/supabase_schema.sql`
 

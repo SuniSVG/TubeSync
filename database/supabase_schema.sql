@@ -139,9 +139,14 @@ ALTER TABLE public.youtube_channels ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.videos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.team_members ENABLE ROW LEVEL SECURITY;
 
--- Xóa và tạo lại Policy để tránh lỗi "already exists"
+-- Profiles: Service role can INSERT/UPDATE (for auth triggers), users manage own
 DROP POLICY IF EXISTS "Users can view own profile" ON public.profiles;
 CREATE POLICY "Users can view own profile" ON public.profiles FOR SELECT USING (auth.uid() = id);
+DROP POLICY IF EXISTS "Service role manages profiles" ON public.profiles;
+CREATE POLICY "Service role manages profiles" ON public.profiles FOR ALL USING (
+  (auth.role() = 'service_role') OR 
+  (auth.uid() = id)
+);
 
 DROP POLICY IF EXISTS "Users can view own channels" ON public.youtube_channels;
 CREATE POLICY "Users can view own channels" ON public.youtube_channels FOR SELECT USING (auth.uid() = user_id);
@@ -155,6 +160,7 @@ CREATE POLICY "Anyone can view tags" ON public.tags_library FOR SELECT USING (tr
 DROP POLICY IF EXISTS "Users can manage their teams" ON public.team_members;
 CREATE POLICY "Users can manage their teams" ON public.team_members 
 FOR ALL USING (auth.uid() = owner_id OR member_email = (SELECT email FROM auth.users WHERE id = auth.uid()));
+
 
 -- 4. CHIẾN DỊCH "QUÉT SẠCH" TRIGGER LỖI (Sửa lỗi r2_key)
 -- Đoạn code này sẽ tự động tìm và xóa TẤT CẢ trigger đang bám trên bảng videos 
@@ -238,12 +244,27 @@ FOR EACH ROW EXECUTE FUNCTION public.handle_video_quota();
 -- 5. Tự động tạo Profile khi đăng ký
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger AS $$
+DECLARE
+  profile_count INT;
 BEGIN
-  INSERT INTO public.profiles (id, email, quota_limit, subscription_tier)
-  VALUES (new.id, new.email, 10, 'starter');
-  RETURN new;
+  -- Check if profile already exists (handle duplicates gracefully)
+  SELECT COUNT(*) INTO profile_count 
+  FROM public.profiles WHERE id = NEW.id;
+  
+  IF profile_count = 0 THEN
+    INSERT INTO public.profiles (id, email, quota_limit, subscription_tier)
+    VALUES (NEW.id, NEW.email, 10, 'starter');
+  ELSE
+    -- Update email if changed (rare edge case)
+    UPDATE public.profiles 
+    SET email = NEW.email 
+    WHERE id = NEW.id;
+  END IF;
+  
+  RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
 
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
@@ -254,9 +275,14 @@ CREATE TRIGGER on_auth_user_created
 ALTER TABLE public.videos ALTER COLUMN drive_file_id DROP NOT NULL;
 ALTER TABLE public.videos ALTER COLUMN drive_file_url DROP NOT NULL;
 
--- 7. Reset Quota cho user hiện tại để tiếp tục quét
+-- 7. Reset Quota cho user hiện tại để tiếp tục quét + Clean failed profiles
 UPDATE public.profiles SET quota_used = 0 WHERE quota_used > 0;
 UPDATE public.profiles SET quota_limit = 5000 WHERE quota_limit < 5000;
+
+-- Clean up any orphaned profiles (edge case)
+DELETE FROM public.profiles 
+WHERE id NOT IN (SELECT id FROM auth.users);
+
 
 -- 8. Bảng Payment History
 CREATE TABLE IF NOT EXISTS public.payment_history (

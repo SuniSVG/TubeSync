@@ -315,10 +315,24 @@ export default function DashboardPage() {
   }, [stats]);
 
   const fetchDashboardData = async (isRefresh = false) => {
+    // Clear any OAuth error params on dashboard load
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      if (url.searchParams.has('error')) {
+        url.searchParams.delete('error');
+        url.searchParams.delete('error_description');
+        url.searchParams.delete('error_code');
+        window.history.replaceState({}, '', url.toString());
+      }
+    }
+
     isRefresh ? setRefreshing(true) : setLoading(true);
 
     const { data: { session } } = await supabase.auth.getSession();
-    if (!session) { setLoading(false); return; }
+    if (!session) { 
+      setLoading(false); 
+      return; 
+    }
 
     setUserName(session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'User');
 

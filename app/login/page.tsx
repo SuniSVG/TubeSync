@@ -59,6 +59,16 @@ export default function LoginPage() {
   };
 
   const handleGoogleLogin = async () => {
+    // Handle auth_error param from dashboard redirect
+    const url = new URL(window.location.href);
+    const authError = url.searchParams.get('auth_error');
+    if (authError === 'database_user_creation') {
+      setError('Lỗi tạo tài khoản mới. Vui lòng thử lại hoặc liên hệ support@Tubesync.pro');
+      url.searchParams.delete('auth_error');
+      window.history.replaceState({}, '', url.toString());
+      return;
+    }
+
     try {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
