@@ -9,11 +9,12 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   UploadCloud, FileVideo, X, CheckCircle2, Loader2, AlertCircle,
-  Clock, Repeat2, Shuffle, Zap, ChevronRight, Tag, FileText,
-  CalendarDays, Hash, Info, Sparkles, PlayCircle
+  Clock, Repeat2, Shuffle, Zap, Tag, FileText,
+  CalendarDays, Hash, Info, Sparkles
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useToast } from "@/hooks/use-toast";
+import { cn } from '@/lib/utils';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type ScheduleType = 'single' | 'recurring' | 'continuous' | 'random';
@@ -147,22 +148,40 @@ export default function UploadPage() {
         return;
       }
 
-      const { data: { session }, error: authError } = await supabase.auth.getUser().then(() => supabase.auth.getSession());
-
-      if (authError && authError.message.includes('Refresh Token Not Found')) {
-        toast({ variant: 'destructive', title: 'Phiên đăng nhập hết hạn', description: 'Vui lòng đăng nhập lại.' });
-        await supabase.auth.signOut();
-        return;
-      }
+      const { data: { session }, error: authError } = await supabase.auth.getSession();
 
       if (authError || !session) {
-        toast({ variant: 'destructive', title: 'Yêu cầu đăng nhập', description: 'Bạn cần đăng nhập để thực hiện tải lên.' });
+        toast({ variant: 'destructive', title: 'Yêu cầu đăng nhập', description: 'Vui lòng đăng nhập lại để tiếp tục.' });
         setIsUploading(false);
         return;
       }
 
+      // 1. Validation trước khi chạy vòng lặp
+      if (!publishImmediately) {
+        if (scheduleType === 'single' && (!scheduleDate || !scheduleTime)) {
+          toast({
+            variant: 'destructive',
+            title: 'Thiếu thông tin',
+            description: 'Vui lòng điền đầy đủ ngày và giờ lên lịch.',
+          });
+          setIsUploading(false);
+          return;
+        }
+        if (scheduleType === 'random' && (!randomStartDate || !randomEndDate)) {
+          toast({
+            variant: 'destructive',
+            title: 'Thiếu thông tin',
+            description: 'Vui lòng chọn khoảng thời gian cho chế độ ngẫu nhiên.',
+          });
+          setIsUploading(false);
+          return;
+        }
+      }
+
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001/upload';
       const totalFiles = files.length;
       let completedFiles = 0;
+      const batchTimestamp = new Date(); // Dùng làm mốc cho Immediate mode
 
       for (const file of files) {
         setCurrentFile(file.name);
@@ -170,21 +189,16 @@ export default function UploadPage() {
         formData.append('file', file);
         formData.append('userId', session.user.id);
 
-        const backendUrl = process.env.BACKEND_URL || 'http://localhost:3001/upload';
-        let uploadResult: any;
-
-        try {
-          const response = await fetch(backendUrl, {
-            method: 'POST',
-            mode: 'cors',
-            body: formData,
-            headers: { Authorization: `Bearer ${session.access_token}` },
-          });
-          const result = await response.json().catch(() => null);
-          if (!response.ok) throw new Error(result?.error || `Lỗi server (${response.status})`);
-          uploadResult = result;
-        } catch (fetchError: any) {
-          throw new Error(`Lỗi tải lên: ${fetchError.message}`);
+        const response = await fetch(backendUrl, {
+          method: 'POST',
+          mode: 'cors',
+          body: formData,
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        
+        const uploadResult = await response.json().catch(() => ({ success: false, error: 'Phản hồi server không hợp lệ' }));
+        if (!response.ok || !uploadResult.success) {
+          throw new Error(uploadResult.error || `Lỗi server (${response.status})`);
         }
 
         let finalTitle = titleTemplate.replace('{filename}', file.name.replace(/\.[^/.]+$/, ''));
@@ -196,7 +210,6 @@ export default function UploadPage() {
           .filter(t => t !== '')
           .map(t => (t.startsWith('#') ? t : `#${t}`));
 
-        const now = new Date().toISOString();
         let videoData: any = {
           user_id: session.user.id,
           channel_id: channel.id,
@@ -209,8 +222,10 @@ export default function UploadPage() {
         };
 
         if (publishImmediately) {
+          // Fix lỗi Immediate: Cộng thêm 2 giây cho mỗi file để tránh trùng timestamp trong batch
+          const staggeredDate = new Date(batchTimestamp.getTime() + (completedFiles * 2000));
           videoData.status = 'pending';
-          videoData.scheduled_for = now;
+          videoData.scheduled_for = staggeredDate.toISOString();
           videoData.publish_now = true;
           videoData.schedule_type = 'immediate';
         } else {
@@ -282,7 +297,7 @@ export default function UploadPage() {
             : files.length > 0
               ? 'border-slate-300 bg-slate-50/60 py-6'
               : 'border-slate-300 bg-slate-50 hover:border-slate-400 hover:bg-white py-14'
-          }`}
+          } ${isUploading ? 'pointer-events-none opacity-60' : ''}`}
       >
         <input {...getInputProps()} />
 
@@ -325,7 +340,7 @@ export default function UploadPage() {
       </div>
 
       {/* ── File List ── */}
-      {files.length > 0 && !isUploading && !uploadSuccess && (
+      {files.length > 0 && !uploadSuccess && (
         <div className="space-y-2">
           {files.map((file, index) => (
             <div
@@ -407,16 +422,16 @@ export default function UploadPage() {
       )}
 
       {/* ── Metadata Form ── */}
-      {files.length > 0 && !isUploading && !uploadSuccess && (
+      {files.length > 0 && !uploadSuccess && (
         <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
           {/* Section header */}
-          <div className="flex items-center gap-3 px-6 py-4 border-b border-slate-100 bg-slate-50/60">
+          <div className={cn("flex items-center gap-3 px-6 py-4 border-b border-slate-100 bg-slate-50/60", isUploading && "opacity-50 pointer-events-none")}>
             <FileText className="h-4 w-4 text-slate-400" />
             <span className="text-sm font-semibold text-slate-700">Metadata cho tất cả video</span>
             <span className="ml-auto text-xs text-slate-400 bg-white border border-slate-200 px-2 py-0.5 rounded-full">{files.length} file</span>
           </div>
 
-          <div className="p-6 space-y-5">
+          <div className={cn("p-6 space-y-5", isUploading && "opacity-50 pointer-events-none")}>
             {/* Title Template */}
             <div className="space-y-1.5">
               <Label htmlFor="title-template" className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
@@ -505,7 +520,7 @@ export default function UploadPage() {
               <span className="text-sm font-semibold text-slate-700">Lịch đăng</span>
             </div>
 
-            <div className="p-6 space-y-5">
+            <div className={cn("p-6 space-y-5", isUploading && "opacity-50 pointer-events-none")}>
               {/* Schedule type selector */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {SCHEDULE_OPTIONS.map(opt => {
@@ -597,7 +612,7 @@ export default function UploadPage() {
       )}
 
       {/* ── Action Bar ── */}
-      {files.length > 0 && !isUploading && !uploadSuccess && (
+      {files.length > 0 && !uploadSuccess && (
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 p-4 rounded-2xl border border-slate-200 bg-white shadow-sm">
           {/* Left summary */}
           <div className="flex-1 text-sm text-slate-500">
@@ -615,9 +630,10 @@ export default function UploadPage() {
           <div className="flex gap-2">
             {showPublishOptions && (
               <Button
-                variant="outline"
-                className="h-9 gap-1.5 text-slate-600"
+                variant="ghost"
+                className="h-9 gap-1.5 text-slate-500 hover:text-red-600"
                 onClick={() => { setShowPublishOptions(false); setPublishImmediately(false); }}
+                disabled={isUploading}
               >
                 <X className="h-4 w-4" /> Hủy
               </Button>
@@ -626,14 +642,16 @@ export default function UploadPage() {
             {!showPublishOptions ? (
               <>
                 <Button
-                  variant="outline"
-                  className="h-9 gap-1.5 flex-1 sm:flex-none"
+                  variant="ghost"
+                  className="h-9 gap-1.5 flex-1 sm:flex-none text-slate-600 border-slate-200"
+                  disabled={isUploading}
                   onClick={() => { setPublishImmediately(false); setShowPublishOptions(true); }}
                 >
                   <CalendarDays className="h-4 w-4" /> Lên Lịch
                 </Button>
                 <Button
-                  className="h-9 gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white flex-1 sm:flex-none font-semibold"
+                  className="h-9 gap-1.5 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 border-emerald-200 flex-1 sm:flex-none font-semibold"
+                  disabled={isUploading}
                   onClick={() => { setPublishImmediately(true); setShowPublishOptions(true); }}
                 >
                   <Zap className="h-4 w-4" /> Đăng Ngay
@@ -642,13 +660,15 @@ export default function UploadPage() {
             ) : (
               <Button
                 onClick={handleUpload}
-                disabled={files.length === 0}
-                className="h-9 gap-1.5 bg-slate-900 hover:bg-slate-800 text-white font-semibold px-6"
+                disabled={files.length === 0 || isUploading}
+                className={cn("h-9 gap-1.5 font-semibold px-6 transition-all", publishImmediately ? "bg-emerald-600 hover:bg-emerald-700 text-white" : "bg-slate-900 hover:bg-slate-800 text-white")}
               >
-                {publishImmediately ? (
-                  <><PlayCircle className="h-4 w-4" /> Xác nhận đăng ngay</>
+                {isUploading ? (
+                  <><Loader2 className="h-4 w-4 animate-spin" /> Đang xử lý...</>
+                ) : publishImmediately ? (
+                  <><Zap className="h-3.5 w-3.5 fill-current" /> Xác nhận đăng ngay</>
                 ) : (
-                  <><ChevronRight className="h-4 w-4" /> Xác nhận lên lịch</>
+                  <><CheckCircle2 className="h-4 w-4" /> Xác nhận lên lịch</>
                 )}
               </Button>
             )}

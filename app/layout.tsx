@@ -6,8 +6,8 @@ import { cn } from "@/lib/utils";
 const geist = Geist({subsets:['latin'],variable:'--font-sans'});
 
 export const metadata: Metadata = {
-  title: 'My Google AI Studio App',
-  description: 'My Google AI Studio App',
+  title: 'TubeSync - Super Auto Flow for YouTube',
+  description: 'TubeSync is a powerful tool that allows you to automate your YouTube workflow. With TubeSync, you can easily manage your YouTube channel, schedule uploads, and track your performance. Whether you are a content creator or a marketer, TubeSync has everything you need to succeed on YouTube.',
 };
 
 export default function RootLayout({children}: {children: React.ReactNode}) {
