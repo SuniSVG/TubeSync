@@ -110,12 +110,22 @@ export default function UploadPage() {
           .from('youtube_channels')
           .select('id')
           .eq('user_id', session.user.id)
-          .limit(1);
-        if (data && data.length > 0) setChannel(data[0]);
+          .maybeSingle();
+
+        if (data) {
+          setChannel(data);
+        } else {
+          // Thông báo ngay nếu người dùng chưa kết nối kênh
+          toast({
+            variant: 'destructive',
+            title: 'Chưa kết nối kênh YouTube',
+            description: 'Vui lòng vào mục Cài đặt để kết nối tài khoản Google trước khi upload.',
+          });
+        }
       }
     };
     fetchChannel();
-  }, []);
+  }, [toast]);
 
   useEffect(() => {
     const fetchTags = async () => {
@@ -268,7 +278,19 @@ export default function UploadPage() {
       setPublishImmediately(false);
     } catch (error: any) {
       console.error('Upload Error:', error);
-      setUploadError(error.message);
+      let errorMsg = error.message;
+      
+      // Xử lý lỗi mất kết nối Backend
+      if (errorMsg === 'Failed to fetch') {
+        errorMsg = 'Không thể kết nối tới Server (Backend). Hãy đảm bảo server đang chạy tại port 3001.';
+      }
+
+      setUploadError(errorMsg);
+      toast({
+        variant: 'destructive',
+        title: 'Lỗi Upload',
+        description: errorMsg,
+      });
     } finally {
       setIsUploading(false);
     }
