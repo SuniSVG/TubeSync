@@ -108,24 +108,24 @@ export default function UploadPage() {
       if (session) {
         const { data } = await supabase
           .from('youtube_channels')
-          .select('id')
+          .select('id, thumbnail_url')
           .eq('user_id', session.user.id)
           .maybeSingle();
 
-        if (data) {
-          setChannel(data);
+        if (!data) {
+            toast({
+              variant: 'destructive',
+              title: 'Chưa kết nối kênh YouTube',
+              description: 'Vui lòng vào mục Cài đặt để kết nối tài khoản Google trước khi upload.',
+            });
+            setChannel(null); // Đảm bảo trạng thái channel là null
         } else {
-          // Thông báo ngay nếu người dùng chưa kết nối kênh
-          toast({
-            variant: 'destructive',
-            title: 'Chưa kết nối kênh YouTube',
-            description: 'Vui lòng vào mục Cài đặt để kết nối tài khoản Google trước khi upload.',
-          });
+            setChannel(data);
         }
       }
     };
     fetchChannel();
-  }, [toast]);
+  }, []); // dependencies empty để chỉ chạy 1 lần khi load trang
 
   useEffect(() => {
     const fetchTags = async () => {
@@ -151,8 +151,8 @@ export default function UploadPage() {
       if (!channel?.id) {
         toast({
           variant: 'destructive',
-          title: 'Chưa kết nối kênh',
-          description: 'Vui lòng kết nối YouTube trước khi upload.',
+          title: 'Chưa sẵn sàng',
+          description: 'Bạn chưa kết nối kênh YouTube. Hãy vào phần Cài đặt để thực hiện.',
         });
         setIsUploading(false);
         return;
@@ -188,7 +188,11 @@ export default function UploadPage() {
         }
       }
 
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001/upload';
+      const baseUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001';
+      // Chuẩn hóa URL để không bị double slash
+      const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+      const backendUrl = `${cleanBaseUrl}/upload`;
+
       const totalFiles = files.length;
       let completedFiles = 0;
       const batchTimestamp = new Date(); // Dùng làm mốc cho Immediate mode
@@ -279,10 +283,11 @@ export default function UploadPage() {
     } catch (error: any) {
       console.error('Upload Error:', error);
       let errorMsg = error.message;
-      
+
       // Xử lý lỗi mất kết nối Backend
-      if (errorMsg === 'Failed to fetch') {
-        errorMsg = 'Không thể kết nối tới Server (Backend). Hãy đảm bảo server đang chạy tại port 3001.';
+      if (errorMsg === 'Failed to fetch' || error.name === 'TypeError') {
+        const baseUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001';
+        errorMsg = `Không thể kết nối tới Server tại địa chỉ: ${baseUrl}. Hãy kiểm tra xem Backend đã được deploy thành công chưa.`;
       }
 
       setUploadError(errorMsg);
