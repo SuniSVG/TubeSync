@@ -188,7 +188,7 @@ export default function UploadPage() {
         }
       }
 
-      const baseUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001';
+      const baseUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://api-production-2a9a.up.railway.app';
       // Chuẩn hóa URL để không bị double slash
       const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
       const backendUrl = `${cleanBaseUrl}/upload`;
@@ -286,7 +286,7 @@ export default function UploadPage() {
 
       // Xử lý lỗi mất kết nối Backend
       if (errorMsg === 'Failed to fetch' || error.name === 'TypeError') {
-        const baseUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001';
+        const baseUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://api-production-2a9a.up.railway.app';
         errorMsg = `Không thể kết nối tới Server tại địa chỉ: ${baseUrl}. Hãy kiểm tra xem Backend đã được deploy thành công chưa.`;
       }
 

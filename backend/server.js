@@ -21,7 +21,7 @@ app.use(cors({
   origin: [
     process.env.FRONTEND_URL || "http://localhost:3000",
     "http://127.0.0.1:3000",
-    "http://localhost:3001",
+    "https://api-production-2a9a.up.railway.app",
     /\.railway\.app$/ // Cho phép các domain con của railway
   ],
   credentials: true,
