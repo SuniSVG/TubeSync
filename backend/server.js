@@ -18,14 +18,15 @@ const app = express();
    ============================================================ */
 
 const corsOptions = {
-  origin: "*", // Trong môi trường dev/debug có thể để *, nhưng production nên liệt kê domain cụ thể
+  // Khi credentials: true, origin KHÔNG ĐƯỢC là "*" (trình duyệt sẽ chặn)
+  // origin: true sẽ tự động phản hồi lại domain của frontend đang gửi request
+  origin: true, 
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
   credentials: true,
 };
 
 app.use(cors(corsOptions));
-app.options("*", cors(corsOptions)); // Xử lý các request preflight OPTIONS
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
