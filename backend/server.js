@@ -17,15 +17,16 @@ const app = express();
    CONFIG
    ============================================================ */
 
-app.use(cors({
-  origin: [
-    process.env.FRONTEND_URL || "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "https://api-production-2a9a.up.railway.app",
-    /\.railway\.app$/ // Cho phép các domain con của railway
-  ],
+const corsOptions = {
+  origin: "*", // Trong môi trường dev/debug có thể để *, nhưng production nên liệt kê domain cụ thể
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
   credentials: true,
-}));
+};
+
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions)); // Xử lý các request preflight OPTIONS
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
