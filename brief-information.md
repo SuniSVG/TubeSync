@@ -22,4 +22,6 @@ Sử dụng Supabase với các Trigger thông minh:
 - `increment_user_stats`: Tích điểm (Credits) cho người dùng mỗi khi upload thành công qua Python Worker.
 
 ---
-*Dự án đang trong giai đoạn tăng trưởng - TubeSync Pro v2.5*
+*Dự án đang trong giai đoạn tăng trưởng - TubeSync Pro v2.5* 
+Trong giai đoạn tiếp theo tôi cần nó có tính năng A/B testing + Case Study hiệu quả
+Tôi có khoảng 50 ngày để build + 40 ngày Marketing
